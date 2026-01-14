@@ -640,11 +640,19 @@ monkey_window_handle_exec(int argc, char **argv)
 			moutf(MOUT_ERROR, "JS WIN %d RET ENOMEM", atoi(argv[2]));
 			return;
 		}
-		strlcpy(cmd, argv[4], total);
-		for (int i = 5; i < argc; ++i) {
-			strlcat(cmd, " ", total);
-			strlcat(cmd, argv[i], total);
+		char *cmdcur = cmd; /* string cursor */
+
+		for (int argi = 4; argi < argc; ++argi) {
+			int argl;
+			argl = strlen(argv[argi]);
+			memcpy(cmdcur, argv[argi], argl);
+			cmdcur+=argl;
+			*cmdcur = ' ';
+			cmdcur++;
 		}
+		cmdcur--;
+		*cmdcur = 0;
+
 		/* Now execute the JS */
 
 		moutf(MOUT_WINDOW, "JS WIN %d RET %s", atoi(argv[2]),
