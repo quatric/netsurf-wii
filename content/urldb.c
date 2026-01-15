@@ -2361,65 +2361,154 @@ urldb_insert_cookie(struct cookie_internal_data *c,
 	return true;
 }
 
+/* Combined (A)BNF for the Cookie: request header:
+ *
+ * CHAR           = <any US-ASCII character (octets 0 - 127)>
+ * CTL            = <any US-ASCII control character
+ *                  (octets 0 - 31) and DEL (127)>
+ * CR             = <US-ASCII CR, carriage return (13)>
+ * LF             = <US-ASCII LF, linefeed (10)>
+ * SP             = <US-ASCII SP, space (32)>
+ * HT             = <US-ASCII HT, horizontal-tab (9)>
+ * <">            = <US-ASCII double-quote mark (34)>
+ *
+ * CRLF           = CR LF
+ *
+ * LWS            = [CRLF] 1*( SP | HT )
+ *
+ * TEXT           = <any OCTET except CTLs,
+ *                  but including LWS>
+ *
+ * token          = 1*<any CHAR except CTLs or separators>
+ * separators     = "(" | ")" | "<" | ">" | "@"
+ *                | "," | ";" | ":" | "\" | <">
+ *                | "/" | "[" | "]" | "?" | "="
+ *                | "{" | "}" | SP | HT
+ *
+ * quoted-string  = ( <"> *(qdtext | quoted-pair ) <"> )
+ * qdtext         = <any TEXT except <">>
+ * quoted-pair    = "\" CHAR
+ *
+ * attr            =       token
+ * value           =       word
+ * word            =       token | quoted-string
+ *
+ * cookie          =       "Cookie:" cookie-version
+ *                         1*((";" | ",") cookie-value)
+ * cookie-value    =       NAME "=" VALUE [";" path] [";" domain]
+ * cookie-version  =       "$Version" "=" value
+ * NAME            =       attr
+ * VALUE           =       value
+ * path            =       "$Path" "=" value
+ * domain          =       "$Domain" "=" value
+ *
+ */
 
 /**
  * Concatenate a cookie into the provided buffer
  *
  * \param c Cookie to concatenate
- * \param version The version of the cookie string to output
  * \param used Pointer to amount of buffer used (updated)
  * \param alloc Pointer to allocated size of buffer (updated)
  * \param buf Pointer to Pointer to buffer (updated)
  * \return true on success, false on memory exhaustion
  */
 static bool
-urldb_concat_cookie(struct cookie_internal_data *c,
-		    int version,
+concat_netscape_cookie(struct cookie_internal_data *c,
 		    int *used,
 		    int *alloc,
 		    char **buf)
 {
-	/* Combined (A)BNF for the Cookie: request header:
+	/*
+	 * A note on quoted-string handling:
+	 *   The cookie data stored in the db is verbatim (i.e. sans enclosing
+	 *   <">, if any, and with all quoted-pairs intact) thus all that we
+	 *   need to do here is ensure that value strings which were quoted
+	 *   in Set-Cookie or which include any of the separators are quoted
+	 *   before use.
 	 *
-	 * CHAR           = <any US-ASCII character (octets 0 - 127)>
-	 * CTL            = <any US-ASCII control character
-	 *                  (octets 0 - 31) and DEL (127)>
-	 * CR             = <US-ASCII CR, carriage return (13)>
-	 * LF             = <US-ASCII LF, linefeed (10)>
-	 * SP             = <US-ASCII SP, space (32)>
-	 * HT             = <US-ASCII HT, horizontal-tab (9)>
-	 * <">            = <US-ASCII double-quote mark (34)>
+	 * A note on cookie-value separation:
+	 *   We use semicolons for all separators, including between
+	 *   cookie-values. This simplifies things and is backwards compatible.
+	 */
+	int max_len;
+	int outl; /* output length */
+
+	assert(c && used && alloc && buf && *buf);
+
+	/* "; " cookie-value
+	 * We allow for the possibility that values are quoted
+	 */
+	max_len = *used + 2 +
+		strlen(c->name) + 1 +
+		strlen(c->value) + 2 +
+		(c->path_from_set ? 8 + strlen(c->path) + 2 : 0) +
+		(c->domain_from_set ? 10 + strlen(c->domain) + 2 : 0);
+	if (max_len >= *alloc) {
+		char *temp = realloc(*buf, max_len);
+		if (!temp) {
+			return false;
+		}
+		*buf = temp;
+		*alloc = max_len;
+	}
+
+	/* Original Netscape cookie */
+	outl = snprintf(*buf + *used - 1, *alloc - *used, "; %s=", c->name);
+	if (outl >= (*alloc - *used)) {
+		/* output truncated */
+		return false;
+	}
+	*used += outl;
+
+	/* The Netscape spec doesn't mention quoting of cookie values.
+	 * RFC 2109 $10.1.3 indicates that values must not be quoted.
 	 *
-	 * CRLF           = CR LF
-	 *
-	 * LWS            = [CRLF] 1*( SP | HT )
-	 *
-	 * TEXT           = <any OCTET except CTLs,
-	 *                  but including LWS>
-	 *
-	 * token          = 1*<any CHAR except CTLs or separators>
-	 * separators     = "(" | ")" | "<" | ">" | "@"
-	 *                | "," | ";" | ":" | "\" | <">
-	 *                | "/" | "[" | "]" | "?" | "="
-	 *                | "{" | "}" | SP | HT
-	 *
-	 * quoted-string  = ( <"> *(qdtext | quoted-pair ) <"> )
-	 * qdtext         = <any TEXT except <">>
-	 * quoted-pair    = "\" CHAR
-	 *
-	 * attr            =       token
-	 * value           =       word
-	 * word            =       token | quoted-string
-	 *
-	 * cookie          =       "Cookie:" cookie-version
-	 *                         1*((";" | ",") cookie-value)
-	 * cookie-value    =       NAME "=" VALUE [";" path] [";" domain]
-	 * cookie-version  =       "$Version" "=" value
-	 * NAME            =       attr
-	 * VALUE           =       value
-	 * path            =       "$Path" "=" value
-	 * domain          =       "$Domain" "=" value
-	 *
+	 * However, other browsers preserve quoting, so we should, too
+	 */
+	if (c->value_was_quoted) {
+		outl = snprintf(*buf + *used - 1,
+				*alloc - *used,
+				"\"%s\"", c->value);
+		if (outl >= (*alloc - *used)) {
+			/* output truncated */
+			return false;
+		}
+		*used += outl;
+	} else {
+		/** \todo should we %XX-encode [;HT,SP] ? */
+		/** \todo Should we strip escaping backslashes? */
+		outl = snprintf(*buf + *used - 1,*alloc - *used, "%s", c->value);
+		if (outl >= (*alloc - *used)) {
+			/* output truncated */
+			return false;
+		}
+		*used += outl;
+	}
+
+	/* We don't send path/domain information -- that's what the
+	 * Netscape spec suggests we should do, anyway. */
+
+	return true;
+}
+
+
+/**
+ * Concatenate a cookie into the provided buffer
+ *
+ * \param c Cookie to concatenate
+ * \param used Pointer to amount of buffer used (updated)
+ * \param alloc Pointer to allocated size of buffer (updated)
+ * \param buf Pointer to Pointer to buffer (updated)
+ * \return true on success, false on memory exhaustion
+ */
+static bool
+concat_rfc2965_cookie(struct cookie_internal_data *c,
+		      int *used,
+		      int *alloc,
+		      char **buf)
+{
+	/*
 	 * A note on quoted-string handling:
 	 *   The cookie data stored in the db is verbatim (i.e. sans enclosing
 	 *   <">, if any, and with all quoted-pairs intact) thus all that we
@@ -2432,97 +2521,183 @@ urldb_concat_cookie(struct cookie_internal_data *c,
 	 *   cookie-values. This simplifies things and is backwards compatible.
 	 */
 	const char * const separators = "()<>@,;:\\\"/[]?={} \t";
-
 	int max_len;
+	int outl; /* output length */
 
 	assert(c && used && alloc && buf && *buf);
 
 	/* "; " cookie-value
 	 * We allow for the possibility that values are quoted
 	 */
-	max_len = 2 + strlen(c->name) + 1 + strlen(c->value) + 2 +
+	max_len = *used + 2 +
+		strlen(c->name) + 1 +
+		strlen(c->value) + 2 +
 		(c->path_from_set ?
 		 8 + strlen(c->path) + 2 : 0) +
 		(c->domain_from_set ?
 		 10 + strlen(c->domain) + 2 : 0);
 
-	if (*used + max_len >= *alloc) {
-		char *temp = realloc(*buf, *alloc + 4096);
+	if (max_len >= *alloc) {
+		char *temp = realloc(*buf, max_len);
 		if (!temp) {
 			return false;
 		}
 		*buf = temp;
-		*alloc += 4096;
+		*alloc = max_len;
 	}
 
-	if (version == COOKIE_NETSCAPE) {
-		/* Original Netscape cookie */
-		sprintf(*buf + *used - 1, "; %s=", c->name);
-		*used += 2 + strlen(c->name) + 1;
+	/* RFC2109 or RFC2965 cookie */
+	outl = snprintf(*buf + *used - 1,
+			*alloc - *used,
+			"; %s=", c->name);
+	if (outl >= (*alloc - *used)) {
+		/* output truncated */
+		return false;
+	}
+	*used += outl;
 
-		/* The Netscape spec doesn't mention quoting of cookie values.
-		 * RFC 2109 $10.1.3 indicates that values must not be quoted.
-		 *
-		 * However, other browsers preserve quoting, so we should, too
-		 */
-		if (c->value_was_quoted) {
-			sprintf(*buf + *used - 1, "\"%s\"", c->value);
-			*used += 1 + strlen(c->value) + 1;
-		} else {
-			/** \todo should we %XX-encode [;HT,SP] ? */
-			/** \todo Should we strip escaping backslashes? */
-			sprintf(*buf + *used - 1, "%s", c->value);
-			*used += strlen(c->value);
-		}
+	/* Value needs quoting if it contains any separator or if
+	 * it needs preserving from the Set-Cookie header */
+	if (c->value_was_quoted ||
+	    strpbrk(c->value, separators) != NULL) {
+		outl = snprintf(*buf + *used - 1,
+				*alloc - *used,
+				"\"%s\"", c->value);
 
-		/* We don't send path/domain information -- that's what the
-		 * Netscape spec suggests we should do, anyway. */
 	} else {
-		/* RFC2109 or RFC2965 cookie */
-		sprintf(*buf + *used - 1, "; %s=", c->name);
-		*used += 2 + strlen(c->name) + 1;
+		outl = snprintf(*buf + *used - 1,
+				*alloc - *used,
+				"%s", c->value);
+	}
+	if (outl >= (*alloc - *used)) {
+		/* output truncated */
+		return false;
+	}
+	*used += outl;
 
-		/* Value needs quoting if it contains any separator or if
-		 * it needs preserving from the Set-Cookie header */
-		if (c->value_was_quoted ||
-		    strpbrk(c->value, separators) != NULL) {
-			sprintf(*buf + *used - 1, "\"%s\"", c->value);
-			*used += 1 + strlen(c->value) + 1;
+	if (c->path_from_set) {
+		/* Path, quoted if necessary */
+
+		if (strpbrk(c->path, separators) != NULL) {
+			outl = snprintf(*buf + *used - 1,
+					*alloc - *used,
+					"; $Path=\"%s\"", c->path);
+
 		} else {
-			sprintf(*buf + *used - 1, "%s", c->value);
-			*used += strlen(c->value);
+			outl = snprintf(*buf + *used - 1,
+				       *alloc - *used,
+				       "; $Path=%s", c->path);
 		}
-
-		if (c->path_from_set) {
-			/* Path, quoted if necessary */
-			sprintf(*buf + *used - 1, "; $Path=");
-			*used += 8;
-
-			if (strpbrk(c->path, separators) != NULL) {
-				sprintf(*buf + *used - 1, "\"%s\"", c->path);
-				*used += 1 + strlen(c->path) + 1;
-			} else {
-				sprintf(*buf + *used - 1, "%s", c->path);
-				*used += strlen(c->path);
-			}
+		if (outl >= (*alloc - *used)) {
+			/* output truncated */
+			return false;
 		}
+		*used += outl;
+	}
 
-		if (c->domain_from_set) {
-			/* Domain, quoted if necessary */
-			sprintf(*buf + *used - 1, "; $Domain=");
-			*used += 10;
-
-			if (strpbrk(c->domain, separators) != NULL) {
-				sprintf(*buf + *used - 1, "\"%s\"", c->domain);
-				*used += 1 + strlen(c->domain) + 1;
-			} else {
-				sprintf(*buf + *used - 1, "%s", c->domain);
-				*used += strlen(c->domain);
-			}
+	if (c->domain_from_set) {
+		/* Domain, quoted if necessary */
+		if (strpbrk(c->domain, separators) != NULL) {
+			outl = snprintf(*buf + *used - 1,
+					*alloc - *used,
+					"; $Domain=\"%s\"", c->domain);
+		} else {
+			outl = snprintf(*buf + *used - 1,
+					*alloc - *used,
+					"; $Domain=%s", c->domain);
 		}
+		if (outl >= (*alloc - *used)) {
+			/* output truncated */
+			return false;
+		}
+		*used += outl;
 	}
 
 	return true;
+}
+
+
+/**
+ * build output cookie string in netscape format
+ */
+static char *
+get_netscape_cookie(struct cookie_internal_data **matched_cookies, int count)
+{
+	int ret_alloc = 4096, ret_used = 1;
+	char *ret;
+	int midx; /* index into matched cookies */
+
+	ret = malloc(ret_alloc);
+	if (ret == NULL) {
+		return NULL;
+	}
+	ret[0] = '\0';
+
+	for (midx = 0; midx < count; midx++) {
+		if (!concat_netscape_cookie(matched_cookies[midx],
+					    &ret_used, &ret_alloc, &ret)) {
+			free(ret);
+			return NULL;
+		}
+	}
+
+	/* Old-style cookies => no version & skip "; " */
+	memmove(ret, ret + 2, ret_used - 2);
+	ret_used -= 2;
+
+	/* shrink the output buffer to the required size */
+	char *temp = realloc(ret, ret_used);
+	if (temp != NULL) {
+		ret = temp;
+	}
+
+	return ret;
+}
+
+
+/**
+ * build output cookie string in RFC2965 format
+ */
+static char *
+get_rfc2965_cookie(struct cookie_internal_data **matched_cookies,
+		   int count,
+		   int version)
+{
+	int ret_alloc = 4096; /* return string allocation */
+	int ret_used = 1; /* return sting buffer used */
+	char *ret; /* return string buffer */
+	int midx; /* index into matched cookies */
+	int outl;
+
+	ret = malloc(ret_alloc);
+	if (ret == NULL) {
+		return NULL;
+	}
+	ret[0] = '\0';
+
+	outl = snprintf(ret,ret_alloc - ret_used, "$Version=%d", version);
+	if (outl >= ret_alloc - ret_used) {
+		/* overflow */
+		free(ret);
+		return NULL;
+	}
+	ret_used += outl;
+
+	for (midx = 0; midx < count; midx++) {
+		if (!concat_rfc2965_cookie(matched_cookies[midx],
+					   &ret_used, &ret_alloc, &ret)) {
+			free(ret);
+			return NULL;
+		}
+	}
+
+	/* shrink the output buffer to the required size */
+	char *temp = realloc(ret, ret_used);
+	if (temp != NULL) {
+		ret = temp;
+	}
+
+	return ret;
 }
 
 
@@ -3999,12 +4174,10 @@ char *urldb_get_cookie(nsurl *url, bool include_http_only)
 	int count = 0, version = COOKIE_RFC2965;
 	struct cookie_internal_data **matched_cookies;
 	int matched_cookies_size = 20;
-	int ret_alloc = 4096, ret_used = 1;
 	const char *path;
 	char *ret;
 	lwc_string *scheme;
 	time_t now;
-	int i;
 	bool match;
 
 	assert(url != NULL);
@@ -4034,7 +4207,6 @@ char *urldb_get_cookie(nsurl *url, bool include_http_only)
 				       sizeof(struct cookie_internal_data *)); \
 									\
 			if (temp == NULL) {				\
-				free(ret);				\
 				free(matched_cookies);			\
 				return NULL;				\
 			}						\
@@ -4044,17 +4216,8 @@ char *urldb_get_cookie(nsurl *url, bool include_http_only)
 		}							\
 	} while(0)
 
-	ret = malloc(ret_alloc);
-	if (!ret) {
-		free(matched_cookies);
-		return NULL;
-	}
-
-	ret[0] = '\0';
-
 	path_lwc = nsurl_get_component(url, NSURL_PATH);
 	if (path_lwc == NULL) {
-		free(ret);
 		free(matched_cookies);
 		return NULL;
 	}
@@ -4216,52 +4379,22 @@ char *urldb_get_cookie(nsurl *url, bool include_http_only)
 			cookie_manager_add((struct cookie_data *)c);
 		}
 	}
+#undef GROW_MATCHED_COOKIES
 
 	if (count == 0) {
 		/* No cookies found */
-		free(ret);
 		free(matched_cookies);
 		return NULL;
 	}
 
-	/* and build output string */
-	if (version > COOKIE_NETSCAPE) {
-		sprintf(ret, "$Version=%d", version);
-		ret_used = strlen(ret) + 1;
-	}
-
-	for (i = 0; i < count; i++) {
-		if (!urldb_concat_cookie(matched_cookies[i], version,
-					 &ret_used, &ret_alloc, &ret)) {
-			free(ret);
-			free(matched_cookies);
-			return NULL;
-		}
-	}
-
 	if (version == COOKIE_NETSCAPE) {
-		/* Old-style cookies => no version & skip "; " */
-		memmove(ret, ret + 2, ret_used - 2);
-		ret_used -= 2;
+		ret = get_netscape_cookie(matched_cookies, count);
+	} else {
+		ret = get_rfc2965_cookie(matched_cookies, count, version);
 	}
-
-	/* Now, shrink the output buffer to the required size */
-	{
-		char *temp = realloc(ret, ret_used);
-		if (!temp) {
-			free(ret);
-			free(matched_cookies);
-			return NULL;
-		}
-
-		ret = temp;
-	}
-
 	free(matched_cookies);
 
 	return ret;
-
-#undef GROW_MATCHED_COOKIES
 }
 
 
@@ -4273,8 +4406,8 @@ void urldb_delete_cookie(const char *domain, const char *path,
 }
 
 
-/* exported interface documented in content/urldb.h */
-void urldb_load_cookies(const char *filename)
+/* exported interface documented in netsurf/cookie_db.h */
+nserror urldb_load_cookies(const char *filename)
 {
 	FILE *fp;
 	char s[16*1024];
@@ -4283,7 +4416,7 @@ void urldb_load_cookies(const char *filename)
 
 	fp = fopen(filename, "r");
 	if (!fp)
-		return;
+		return NSERROR_NOT_FOUND;
 
 #define FIND_T {				\
 		for (; *p && *p != '\t'; p++)	\
@@ -4437,11 +4570,13 @@ void urldb_load_cookies(const char *filename)
 #undef FIND_T
 
 	fclose(fp);
+
+	return NSERROR_OK;
 }
 
 
-/* exported interface documented in content/urldb.h */
-void urldb_save_cookies(const char *filename)
+/* exported interface documented in netsurf/cookie_db.h */
+nserror urldb_save_cookies(const char *filename)
 {
 	FILE *fp;
 	int cookie_file_version = max(loaded_cookie_file_version,
@@ -4451,7 +4586,7 @@ void urldb_save_cookies(const char *filename)
 
 	fp = fopen(filename, "w");
 	if (!fp)
-		return;
+		return NSERROR_NOT_FOUND;
 
 	fprintf(fp, "# NetSurf cookies file.\n"
 		"#\n"
@@ -4470,6 +4605,8 @@ void urldb_save_cookies(const char *filename)
 	urldb_save_cookie_hosts(fp, &db_root);
 
 	fclose(fp);
+
+	return NSERROR_OK;
 }
 
 
@@ -4484,7 +4621,3 @@ void urldb_dump(void)
 		urldb_dump_search(search_trees[i], 0);
 	}
 }
-
-
-
-

@@ -27,6 +27,8 @@
 #include <stdbool.h>
 #include <time.h>
 
+#include "utils/errors.h"
+
 /**
  * Version of cookie
  *
@@ -84,15 +86,14 @@ void urldb_delete_cookie(const char *domain, const char *path, const char *name)
  *
  * \param filename File to load
  */
-void urldb_load_cookies(const char *filename);
+nserror urldb_load_cookies(const char *filename);
 
 /**
  * Save persistent cookies to file
  *
  * \param filename Path to save to
+ * \return NSERROR_OK on success else error code
  */
-void urldb_save_cookies(const char *filename);
-
-
+nserror urldb_save_cookies(const char *filename);
 
 #endif
