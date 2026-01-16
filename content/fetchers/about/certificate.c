@@ -221,7 +221,8 @@ static int ns_EVP_PKEY_get_utf8_string_param(const EVP_PKEY *pkey,
 		size_t *out_len)
 {
 	const EC_GROUP *ecgroup;
-	const char *group;
+	const char *group = "";
+	size_t group_len = 0;
 	EC_KEY *ec;
 	int ret = 0;
 
@@ -239,19 +240,20 @@ static int ns_EVP_PKEY_get_utf8_string_param(const EVP_PKEY *pkey,
 	ec = EVP_PKEY_get1_EC_KEY((EVP_PKEY *) pkey);
 
 	ecgroup = EC_KEY_get0_group(ec);
-	if (ecgroup == NULL) {
-		group = "";
-	} else {
+	if (ecgroup != NULL) {
 		group = OBJ_nid2ln(EC_GROUP_get_curve_name(ecgroup));
+		group_len = strlen(group);
 	}
 
-	if (str != NULL && max_len > strlen(group)) {
-		strcpy(str, group);
-		str[strlen(group)] = '\0';
+	if (str != NULL && max_len > group_len) {
+		memcpy(str, group, group_len);
+		str[group_len] = '\0';
 		ret = 1;
 	}
-	if (out_len != NULL)
-		*out_len = strlen(group);
+
+	if (out_len != NULL) {
+		*out_len = group_len;
+	}
 
 	EC_KEY_free(ec);
 
