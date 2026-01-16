@@ -1336,10 +1336,42 @@ static struct RDArgs *ami_gui_commandline(int *restrict argc, char ** argv,
 		 * first, nsoption_commandline() can no longer parse (fetch?)
 		 * the arguments.  If nsoption_commandline() is called first,
 		 * then ReadArgs cannot fetch the arguments.
-		 *\todo this was totally broken so to stop startup crashing
-		 * has been temporarily removed (core cli not called when func
-		 * returns NULL).
 		 */
+			char **nsopts = rarray[A_NSOPTS];
+			int i = 0;
+			int opts = 0;
+
+			/* Count the number of args */
+			do {
+				NSLOG(netsurf, INFO,
+			      "NSOPTS/M %d = %s", opts, nsopts[i]);
+				opts++;
+				i++;
+			} while(nsopts[i]);
+			
+			opts = i + 1;
+			NSLOG(netsurf, INFO, "Core option count: %d (+1 for command)", opts);
+			
+			/* Allocate a new array and copy to it */
+			char **fakeargs = AllocVec((opts + 1) * sizeof(char *), MEMF_CLEAR | MEMF_PRIVATE);
+			
+			/* Arg 0 is the command itself */
+			fakeargs[0] = strdup("NetSurf");
+
+			i = 0;
+
+			do {
+				fakeargs[i+1] = strdup(nsopts[i]);
+				NSLOG(netsurf, INFO,
+					"OPT %d: %s", i+1, fakeargs[i+1]);
+				i++;
+			} while(nsopts[i]);
+			
+			*nargc = opts;
+			*nargv = fakeargs;
+			
+			FreeArgs(args);
+			return fakeargs;
 		}
 	} else {
 		NSLOG(netsurf, INFO, "ReadArgs failed to parse command line");
@@ -6556,7 +6588,7 @@ int main(int argc, char** argv)
 	}
 
 	current_user = ami_gui_read_all_tooltypes(argc, argv);
-	struct RDArgs *args = ami_gui_commandline(&argc, argv, &nargc, &nargv);
+	char **args = ami_gui_commandline(&argc, argv, &nargc, &nargv);
 
 	current_user_dir = ami_gui_get_user_dir(current_user);
 	if(current_user_dir == NULL) {
@@ -6591,8 +6623,14 @@ int main(int argc, char** argv)
 	}
 	ami_nsoption_read();
 	if(args != NULL) {
-		nsoption_commandline(&nargc, &nargv, NULL);
-		FreeArgs(args);
+		nsoption_commandline(&nargc, nargv, NULL);
+		
+		NSLOG(netsurf, INFO, "Freeing fake args");
+		
+		for(int i = 0; i < nargc; i++) {
+			if(nargv[i]) free(nargv[i]);
+		}
+		FreeVec(args);
 	}
 
 	if (ami_locate_resource(messages, "Messages") == false) {
