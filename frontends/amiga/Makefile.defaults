@@ -35,7 +35,7 @@ NETSURF_USE_NSSVG := YES
 NETSURF_FS_BACKING_STORE := YES
 
 # Optimisation levels
-CFLAGS += -fomit-frame-pointer
+CFLAGS += -O2 -fomit-frame-pointer
 
 # Target-specific
 ifneq ($(SUBTARGET),os3)
