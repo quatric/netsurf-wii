@@ -1353,8 +1353,12 @@ static struct RDArgs *ami_gui_commandline(int *restrict argc, char ** argv,
 			NSLOG(netsurf, INFO, "Core option count: %d (+1 for command)", opts);
 			
 			/* Allocate a new array and copy to it */
-			char **fakeargs = AllocVec((opts + 1) * sizeof(char *), MEMF_CLEAR | MEMF_PRIVATE);
-			
+			char **fakeargs = malloc((opts + 1) * sizeof(char *));
+			if(fakeargs == NULL) {
+				NSLOG(netsurf, WARNING, "Unable to allocate memory fir fake args array");
+				return NULL;
+			}
+
 			/* Arg 0 is the command itself */
 			fakeargs[0] = strdup("NetSurf");
 
@@ -1367,6 +1371,8 @@ static struct RDArgs *ami_gui_commandline(int *restrict argc, char ** argv,
 				i++;
 			} while(nsopts[i]);
 			
+			fakeargs[i+1] = NULL;
+
 			*nargc = opts;
 			*nargv = fakeargs;
 			
@@ -6624,13 +6630,15 @@ int main(int argc, char** argv)
 	ami_nsoption_read();
 	if(args != NULL) {
 		nsoption_commandline(&nargc, nargv, NULL);
-		
-		NSLOG(netsurf, INFO, "Freeing fake args");
-		
+
 		for(int i = 0; i < nargc; i++) {
-			if(nargv[i]) free(nargv[i]);
+			if(args[i]) {
+				NSLOG(netsurf, INFO, "Freeing fake arg %d: %s", i, args[i]);
+				free(args[i]);
+			}
 		}
-		FreeVec(args);
+		NSLOG(netsurf, INFO, "Freeing fake arg array");
+		free(args);
 	}
 
 	if (ami_locate_resource(messages, "Messages") == false) {
