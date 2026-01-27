@@ -2277,6 +2277,56 @@ static nserror llcache_hsts_update_policy(llcache_object *object)
 }
 
 /**
+ * determine if a redirect is safe
+ *
+ * Reject attempts to redirect from unvalidated to validated schemes
+ * A "validated" scheme is one over which we have some guarantee that
+ * the source is trustworthy.
+ *
+ * \param src_url source URL of redirect
+ * \param dst_url destination URL of redirect
+ * \return NSERROR_OK if safe else error code
+ */
+static nserror check_redirect_safety(nsurl *src_url, nsurl *dst_url)
+{
+	lwc_string *scheme;
+	lwc_string *object_scheme;
+	bool match;
+
+	object_scheme = nsurl_get_component(src_url, NSURL_SCHEME);
+	scheme = nsurl_get_component(dst_url, NSURL_SCHEME);
+
+	/* resource: and about: are allowed to redirect anywhere */
+	if ((lwc_string_isequal(object_scheme, corestring_lwc_resource,
+			&match) == lwc_error_ok && match == false) &&
+	    (lwc_string_isequal(object_scheme, corestring_lwc_about,
+			&match) == lwc_error_ok && match == false)) {
+		/* file, about and resource are not valid redirect targets */
+		if ((lwc_string_isequal(scheme, corestring_lwc_file,
+				&match) == lwc_error_ok && match == true) ||
+		    (lwc_string_isequal(scheme, corestring_lwc_about,
+				&match) == lwc_error_ok && match == true) ||
+		    (lwc_string_isequal(scheme, corestring_lwc_resource,
+				&match) == lwc_error_ok && match == true)) {
+			lwc_string_unref(object_scheme);
+			lwc_string_unref(scheme);
+
+			return NSERROR_UNSAFE_REDIRECT;
+		}
+	}
+
+	lwc_string_unref(scheme);
+	lwc_string_unref(object_scheme);
+
+	/* Bail out if we've no way of handling this URL */
+	if (fetch_can_fetch(dst_url) == false) {
+		return NSERROR_UNSAFE_REDIRECT;
+	}
+
+	return NSERROR_OK;
+}
+
+/**
  * Handle FETCH_REDIRECT event
  *
  * \param object       Object being redirected
@@ -2287,17 +2337,17 @@ static nserror llcache_hsts_update_policy(llcache_object *object)
 static nserror llcache_fetch_redirect(llcache_object *object,
 		const char *target, llcache_object **replacement)
 {
-	nserror error;
+	nserror res;
 	llcache_object *dest;
 	llcache_object_user *user, *next;
 	const llcache_post_data *post = object->fetch.post;
 	nsurl *url, *hsts_url;
-	lwc_string *scheme;
-	lwc_string *object_scheme;
-	bool match, hsts_in_use;
-	/* Extract HTTP response code from the fetch object */
-	long http_code = fetch_http_code(object->fetch.fetch);
+	bool hsts_in_use;
+	http_response_code http_code;
 	llcache_event event;
+
+	/* Extract HTTP response code from the fetch object before it is aborted */
+	http_code = fetch_http_code(object->fetch.fetch);
 
 	/* Abort fetch for this object */
 	fetch_abort(object->fetch.fetch);
@@ -2312,110 +2362,96 @@ static nserror llcache_fetch_redirect(llcache_object *object,
 	(void) llcache_hsts_update_policy(object);
 
 	/* Forcibly stop redirecting if we've followed too many redirects */
-#define REDIRECT_LIMIT 10
-	if (object->fetch.redirect_count > REDIRECT_LIMIT) {
+	if (object->fetch.redirect_count > nsoption_uint(fetch_redirect_limit)) {
 		NSLOG(llcache, INFO, "Too many nested redirects");
-
-		event.type = LLCACHE_EVENT_ERROR;
-		event.data.error.code = NSERROR_BAD_REDIRECT;
-		event.data.error.msg = messages_get("BadRedirect");
-
-		return llcache_send_event_to_users(object, &event);
+		return NSERROR_CYCLIC_REDIRECT;
 	}
-#undef REDIRECT_LIMIT
 
 	/* Make target absolute */
-	error = nsurl_join(object->url, target, &url);
-	if (error != NSERROR_OK)
-		return error;
+	res = nsurl_join(object->url, target, &url);
+	if (res != NSERROR_OK) {
+		return res;
+	}
 
 	/* Perform HSTS transform */
-	error = llcache_hsts_transform_url(url, &hsts_url, &hsts_in_use);
-	if (error != NSERROR_OK) {
-		nsurl_unref(url);
-		return error;
-	}
+	res = llcache_hsts_transform_url(url, &hsts_url, &hsts_in_use);
 	nsurl_unref(url);
+	if (res != NSERROR_OK) {
+		NSLOG(llcache, INFO, "hsts transform failed");
+		return res;
+	}
+
+	/* check redirect allowed before informing users */
+	res = check_redirect_safety(object->url, hsts_url);
+	if (res != NSERROR_OK) {
+		NSLOG(llcache, INFO, "unsafe redirect");
+		nsurl_unref(hsts_url);
+		return res;
+	}
+
+	/* alter behaviour based on specific redirect code */
+	switch (http_code) {
+	case HTTP_RESPONSE_MOVED_PERMANENTLY:
+	case HTTP_RESPONSE_FOUND:
+	case HTTP_RESPONSE_SEE_OTHER:
+		/* 301, 302, 303 redirects change method to GET */
+		post = NULL;
+		break;
+
+	case HTTP_RESPONSE_TEMPORARY_REDIRECT:
+	case HTTP_RESPONSE_PERMANENT_REDIRECT:
+		/* 307 and 308 keep method unchanged */
+		break;
+
+	default:
+		/** \todo implement codes
+		 * HTTP_RESPONSE_MULTIPLE_CHOICES (300),
+		 * HTTP_RESPONSE_USE_PROXY (305)
+		 */
+		NSLOG(llcache, INFO, "unsupported redirect %d", http_code);
+		nsurl_unref(hsts_url);
+		return NSERROR_BAD_REDIRECT;
+	}
 
 	/* Inform users of redirect */
 	event.type = LLCACHE_EVENT_REDIRECT;
 	event.data.redirect.from = object->url;
 	event.data.redirect.to = hsts_url;
 
-	error = llcache_send_event_to_users(object, &event);
-
-	if (error != NSERROR_OK) {
+	res = llcache_send_event_to_users(object, &event);
+	if (res != NSERROR_OK) {
 		nsurl_unref(hsts_url);
-		return error;
-	}
-
-	/* Reject attempts to redirect from unvalidated to validated schemes
-	 * A "validated" scheme is one over which we have some guarantee that
-	 * the source is trustworthy. */
-	object_scheme = nsurl_get_component(object->url, NSURL_SCHEME);
-	scheme = nsurl_get_component(hsts_url, NSURL_SCHEME);
-
-	/* resource: and about: are allowed to redirect anywhere */
-	if ((lwc_string_isequal(object_scheme, corestring_lwc_resource,
-			&match) == lwc_error_ok && match == false) &&
-	    (lwc_string_isequal(object_scheme, corestring_lwc_about,
-			&match) == lwc_error_ok && match == false)) {
-		/* file, about and resource are not valid redirect targets */
-		if ((lwc_string_isequal(object_scheme, corestring_lwc_file,
-				&match) == lwc_error_ok && match == true) ||
-		    (lwc_string_isequal(object_scheme, corestring_lwc_about,
-				&match) == lwc_error_ok && match == true) ||
-		    (lwc_string_isequal(object_scheme, corestring_lwc_resource,
-				&match) == lwc_error_ok && match == true)) {
-			lwc_string_unref(object_scheme);
-			lwc_string_unref(scheme);
-			nsurl_unref(hsts_url);
-			return NSERROR_OK;
-		}
-	}
-
-	lwc_string_unref(scheme);
-	lwc_string_unref(object_scheme);
-
-	/* Bail out if we've no way of handling this URL */
-	if (fetch_can_fetch(hsts_url) == false) {
-		nsurl_unref(hsts_url);
-		return NSERROR_OK;
-	}
-
-	if (http_code == 301 || http_code == 302 || http_code == 303) {
-		/* 301, 302, 303 redirects are all unconditional GET requests */
-		post = NULL;
-	} else if (http_code != 307 || post != NULL) {
-		/** \todo 300, 305, 307 with POST */
-		nsurl_unref(hsts_url);
-		return NSERROR_OK;
+		return res;
 	}
 
 	/* Attempt to fetch target URL */
-	error = llcache_object_retrieve(hsts_url, object->fetch.flags,
-			object->fetch.referer, post,
-			object->fetch.redirect_count + 1,
-			hsts_in_use, &dest);
+	res = llcache_object_retrieve(hsts_url,
+					object->fetch.flags,
+					object->fetch.referer,
+					post,
+					object->fetch.redirect_count + 1,
+					hsts_in_use,
+					&dest);
 
 	/* No longer require url */
 	nsurl_unref(hsts_url);
 
-	if (error != NSERROR_OK)
-		return error;
+	if (res == NSERROR_OK) {
+		/* successfully started redirected fetch */
 
-	/* Move user(s) to replacement object */
-	for (user = object->users; user != NULL; user = next) {
-		next = user->next;
+		/* Move user(s) to replacement object */
+		for (user = object->users; user != NULL; user = next) {
+			next = user->next;
 
-		llcache_object_remove_user(object, user);
-		llcache_object_add_user(dest, user);
+			llcache_object_remove_user(object, user);
+			llcache_object_add_user(dest, user);
+		}
+
+		/* Dest is now our object */
+		*replacement = dest;
 	}
 
-	/* Dest is now our object */
-	*replacement = dest;
-
-	return NSERROR_OK;
+	return res;
 }
 
 /**
@@ -3092,6 +3128,12 @@ static void llcache_fetch_callback(const fetch_msg *msg, void *p)
 
 		error = llcache_fetch_redirect(object,
 				msg->data.redirect, &object);
+		if (error != NSERROR_OK) {
+			event.type = LLCACHE_EVENT_ERROR;
+			event.data.error.code = error;
+			event.data.error.msg = NULL;
+			error = llcache_send_event_to_users(object, &event);
+		}
 		break;
 
 	case FETCH_NOTMODIFIED:

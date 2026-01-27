@@ -1478,13 +1478,14 @@ static bool fetch_curl_process_headers(struct curl_fetch_info *f)
 	if (!f->http_code) {
 		code = curl_easy_getinfo(f->curl_handle, CURLINFO_HTTP_CODE,
 					 &f->http_code);
-		fetch_set_http_code(f->fetch_handle, f->http_code);
 		assert(code == CURLE_OK);
+		fetch_set_http_code(f->fetch_handle, f->http_code);
 	}
 	http_code = f->http_code;
 	NSLOG(netsurf, INFO, "HTTP status code %li", http_code);
 
-	if ((http_code == 304) && (f->postdata->type==FETCH_POSTDATA_NONE)) {
+	if ((http_code == HTTP_RESPONSE_NOT_MODIFIED) &&
+	    (f->postdata->type==FETCH_POSTDATA_NONE)) {
 		/* Not Modified && GET request */
 		msg.type = FETCH_NOTMODIFIED;
 		fetch_send_callback(&msg, f->fetch_handle);
@@ -1492,7 +1493,7 @@ static bool fetch_curl_process_headers(struct curl_fetch_info *f)
 	}
 
 	/* handle HTTP redirects (3xx response codes) */
-	if (300 <= http_code && http_code < 400 && f->location != 0) {
+	if (HTTP_RESPONSE_IS_3XX(http_code) && (f->location != 0)) {
 		NSLOG(netsurf, INFO, "FETCH_REDIRECT, '%s'", f->location);
 		msg.type = FETCH_REDIRECT;
 		msg.data.redirect = f->location;
@@ -1501,7 +1502,7 @@ static bool fetch_curl_process_headers(struct curl_fetch_info *f)
 	}
 
 	/* handle HTTP 401 (Authentication errors) */
-	if (http_code == 401) {
+	if (http_code == HTTP_RESPONSE_UNAUTHORIZED) {
 		msg.type = FETCH_AUTH;
 		msg.data.auth.realm = f->realm;
 		fetch_send_callback(&msg, f->fetch_handle);
@@ -1509,8 +1510,9 @@ static bool fetch_curl_process_headers(struct curl_fetch_info *f)
 	}
 
 	/* handle HTTP errors (non 2xx response codes) */
-	if (f->only_2xx && strncmp(nsurl_access(f->url), "http", 4) == 0 &&
-			(http_code < 200 || 299 < http_code)) {
+	if (f->only_2xx &&
+	    strncmp(nsurl_access(f->url), "http", 4) == 0 &&
+	    (HTTP_RESPONSE_IS_2XX(http_code) == false)) {
 		msg.type = FETCH_ERROR;
 		msg.data.error = messages_get("Not2xx");
 		fetch_send_callback(&msg, f->fetch_handle);
@@ -1821,14 +1823,14 @@ static size_t fetch_curl_data(char *data, size_t size, size_t nmemb, void *_f)
 	if (!f->http_code) {
 		code = curl_easy_getinfo(f->curl_handle, CURLINFO_HTTP_CODE,
 					 &f->http_code);
-		fetch_set_http_code(f->fetch_handle, f->http_code);
 		assert(code == CURLE_OK);
+		fetch_set_http_code(f->fetch_handle, f->http_code);
 	}
 
 	/* ignore body if this is a 401 reply by skipping it and reset
 	 * the HTTP response code to enable follow up fetches.
 	 */
-	if (f->http_code == 401) {
+	if (f->http_code == HTTP_RESPONSE_UNAUTHORIZED) {
 		f->http_code = 0;
 		return size * nmemb;
 	}

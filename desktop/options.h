@@ -220,6 +220,9 @@ NSOPTION_UINT(max_retried_fetches, 1)
  */
 NSOPTION_UINT(curl_fetch_timeout, 30)
 
+/** Maximum number of redirects before a fetch fails. */
+NSOPTION_UINT(fetch_redirect_limit, 10)
+
 /** Suppress debug output from cURL. */
 NSOPTION_BOOL(suppress_curl_debug, true)
 

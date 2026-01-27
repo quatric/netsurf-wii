@@ -883,14 +883,18 @@ it.all.Stopped:Interrotto
 nl.all.Stopped:gestopt
 zh_CN.all.Stopped:已停止
 
-# Fetch warning/error messages - displayed in status bar
+# Fetch warning/error messages - displayed in status bar and error reports
 #
-en.all.BadRedirect:Bad redirect URL
-de.all.BadRedirect:Falsche URL für Redirect
-fr.all.BadRedirect:Mauvaise URL de redirection
-it.all.BadRedirect:Errata redirezione dell'URL
-nl.all.BadRedirect:foutief doorverwijzen naar adres
-zh_CN.all.BadRedirect:错误的重定向地址
+en.all.UnsupportedRedirect:Bad redirect URL
+de.all.UnsupportedRedirect:Falsche URL für Redirect
+fr.all.UnsupportedRedirect:Mauvaise URL de redirection
+it.all.UnsupportedRedirect:Errata redirezione dell'URL
+nl.all.UnsupportedRedirect:foutief doorverwijzen naar adres
+zh_CN.all.UnsupportedRedirect:错误的重定向地址
+
+en.all.CyclicRedirect:Redirected too many times. Try deleting your cookies
+
+en.all.UnsafeRedirect:Redirected to an unsafe URL
 
 en.all.FetchFailed:Unable to fetch document
 de.all.FetchFailed:Kann Dokument nicht fetchen

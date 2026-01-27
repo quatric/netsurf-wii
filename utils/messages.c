@@ -396,8 +396,16 @@ const char *messages_get_errorcode(nserror code)
 		return messages_get_ctx("BadAuth", messages_hash);
 
 	case NSERROR_BAD_REDIRECT:
-		/* To many redirects */
-		return messages_get_ctx("TooManyRedirects", messages_hash);
+		/* unsupported redirects */
+		return messages_get_ctx("UnsupportedRedirect", messages_hash);
+
+	case NSERROR_CYCLIC_REDIRECT:
+		/* Too many redirects */
+		return messages_get_ctx("CyclicRedirect", messages_hash);
+
+	case NSERROR_UNSAFE_REDIRECT:
+		/* Unsafe redirects */
+		return messages_get_ctx("UnsafeRedirect", messages_hash);
 
 	case NSERROR_BAD_CERTS:
 		/* Certificate chain verification failure */

@@ -60,6 +60,8 @@ typedef enum {
 	NSERROR_BAD_SIZE,               /**< Bad size */
 	NSERROR_NOT_IMPLEMENTED,        /**< Functionality is not implemented */
 	NSERROR_BAD_REDIRECT,           /**< Fetch encountered a bad redirect */
+	NSERROR_CYCLIC_REDIRECT,        /**< Fetch encountered a cyclic redirect */
+	NSERROR_UNSAFE_REDIRECT,        /**< Fetch encountered a unsafe redirect */
 	NSERROR_BAD_AUTH,               /**< Fetch needs authentication data */
 	NSERROR_BAD_CERTS,              /**< Fetch needs certificate chain check */
 	NSERROR_TIMEOUT,                /**< Operation timed out */

@@ -28,6 +28,8 @@
 #include "utils/config.h"
 #include "utils/nsurl.h"
 #include "utils/inet.h"
+#include "utils/http/response-codes.h"
+
 #include "netsurf/ssl_certs.h"
 
 struct content;
@@ -191,7 +193,7 @@ void fetch_change_callback(struct fetch *fetch, fetch_callback callback, void *p
 /**
  * Get the HTTP response code.
  */
-long fetch_http_code(struct fetch *fetch);
+http_response_code fetch_http_code(struct fetch *fetch);
 
 
 /**
@@ -251,7 +253,7 @@ void fetch_free(struct fetch *f);
 /**
  * set the http code of a fetch
  */
-void fetch_set_http_code(struct fetch *fetch, long http_code);
+nserror fetch_set_http_code(struct fetch *fetch, http_response_code http_code);
 
 /**
  * set cookie data on a fetch

@@ -93,7 +93,7 @@ struct fetch {
 	bool verifiable;	/**< Transaction is verifiable */
 	void *p;		/**< Private data for callback. */
 	lwc_string *host;	/**< Host part of URL, interned */
-	long http_code;		/**< HTTP response code, or 0. */
+	http_response_code http_code;	/**< HTTP response code, or 0. */
 	int fetcherd;           /**< Fetcher descriptor for this fetch */
 	void *fetcher_handle;	/**< The handle for the fetcher. */
 	bool fetch_is_active;	/**< This fetch is active. */
@@ -605,7 +605,7 @@ void fetch_change_callback(struct fetch *fetch,
 }
 
 /* exported interface documented in content/fetch.h */
-long fetch_http_code(struct fetch *fetch)
+http_response_code fetch_http_code(struct fetch *fetch)
 {
 	return fetch->http_code;
 }
@@ -787,11 +787,13 @@ void fetch_remove_from_queues(struct fetch *fetch)
 
 
 /* exported interface documented in content/fetch.h */
-void fetch_set_http_code(struct fetch *fetch, long http_code)
+nserror fetch_set_http_code(struct fetch *fetch, http_response_code http_code)
 {
-	NSLOG(fetch, DEBUG, "Setting HTTP code to %ld", http_code);
+	NSLOG(fetch, DEBUG, "Setting HTTP code to %d", http_code);
 
 	fetch->http_code = http_code;
+
+	return NSERROR_OK;
 }
 
 
