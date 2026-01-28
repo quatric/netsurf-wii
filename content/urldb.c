@@ -2641,6 +2641,11 @@ get_netscape_cookie(struct cookie_internal_data **matched_cookies, int count)
 		}
 	}
 
+	if (ret_used <= 2) {
+		free(ret);
+		return NULL;
+	}
+
 	/* Old-style cookies => no version & skip "; " */
 	memmove(ret, ret + 2, ret_used - 2);
 	ret_used -= 2;
