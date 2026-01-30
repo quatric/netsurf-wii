@@ -2942,10 +2942,12 @@ static BOOL ami_gui_event(void *w)
 					{
 						char *prov = NULL;
 						struct Node *chooser_node = NULL;
-						GetAttr(CHOOSER_SelectedNode, gwin->objects[GID_SEARCH_ICON],(ULONG *)chooser_node);
+
+						GetAttr(CHOOSER_SelectedNode, gwin->objects[GID_SEARCH_ICON],(ULONG *)&chooser_node);
+
 						if(chooser_node != NULL) {
 							GetChooserNodeAttrs(chooser_node, CNA_Text, (ULONG *)&prov, TAG_DONE);
-							nsoption_set_charp(search_web_provider, (char *)strdup(prov));
+							if(prov != NULL) nsoption_set_charp(search_web_provider, (char *)strdup(prov));
 						}
 					}
 #else
@@ -6051,6 +6053,7 @@ static nserror gui_search_web_provider_update(const char *provider_name,
 				GA_HintInfo, provider_name,
 				GA_Image, gwin->search_bm,
 				TAG_DONE);
+
 		}
 	} while((node = nnode));
 
