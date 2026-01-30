@@ -1288,7 +1288,7 @@ static void ami_openscreenfirst(void)
 	ami_theme_throbber_setup();
 }
 
-static struct RDArgs *ami_gui_commandline(int *restrict argc, char ** argv,
+static char **ami_gui_commandline(int *restrict argc, char ** argv,
 		int *restrict nargc, char ** nargv)
 {
 	struct RDArgs *args;
@@ -1337,7 +1337,7 @@ static struct RDArgs *ami_gui_commandline(int *restrict argc, char ** argv,
 		 * the arguments.  If nsoption_commandline() is called first,
 		 * then ReadArgs cannot fetch the arguments.
 		 */
-			char **nsopts = rarray[A_NSOPTS];
+			char **nsopts = (char **)rarray[A_NSOPTS];
 			int i = 0;
 			int opts = 0;
 
