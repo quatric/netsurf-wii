@@ -282,7 +282,7 @@ static void fetch_rsrc_poll(lwc_string *scheme)
 		if (!c->aborted && fetch_rsrc_process(c) == true) {
 			char header[64];
 
-			fetch_set_http_code(c->parent_fetch, 200);
+			fetch_set_http_code(c->parent_fetch, HTTP_RESPONSE_OK);
 			NSLOG(netsurf, INFO,
 			      "setting rsrc: MIME type to %s, length to %zd",
 			      c->mimetype,
