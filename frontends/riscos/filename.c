@@ -36,9 +36,10 @@
 #include "utils/dirent.h"
 #include "utils/errors.h"
 #include "utils/file.h"
-#include "utils/filename.h"
 #include "utils/log.h"
 #include "utils/utils.h"
+
+#include "riscos/filename.h"
 
 #define FULL_WORD (unsigned int)0xffffffffu
 #define START_PREFIX ('0' + '0' * 10)

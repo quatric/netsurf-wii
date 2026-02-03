@@ -40,12 +40,12 @@
 #include <oslib/wimp.h>
 
 #include "utils/nsoption.h"
-#include "utils/filename.h"
 #include "utils/log.h"
 #include "utils/messages.h"
 #include "netsurf/plotters.h"
 #include "netsurf/content.h"
 
+#include "riscos/filename.h"
 #include "riscos/gui.h"
 #include "riscos/image.h"
 #include "riscos/palettes.h"

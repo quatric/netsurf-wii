@@ -4,7 +4,6 @@ S_UTILS := \
 	bloom.c \
 	corestrings.c \
 	file.c \
-	filename.c \
 	filepath.c \
 	hashmap.c \
 	hashtable.c \

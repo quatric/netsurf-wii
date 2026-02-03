@@ -58,6 +58,7 @@ S_FRONTEND :=			\
 	corewindow.c		\
 	dialog.c		\
 	download.c		\
+	filename.c		\
 	filetype.c		\
 	font.c			\
 	global_history.c	\

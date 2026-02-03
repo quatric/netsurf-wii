@@ -20,9 +20,9 @@
 #include <oslib/hourglass.h>
 
 #include "utils/nsoption.h"
-#include "utils/filename.h"
 #include "utils/messages.h"
 
+#include "riscos/filename.h"
 #include "riscos/gui.h"
 #include "riscos/wimp.h"
 #include "riscos/wimp_event.h"

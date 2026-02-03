@@ -44,7 +44,6 @@
 #include "utils/log.h"
 #include "utils/messages.h"
 #include "utils/file.h"
-#include "utils/filename.h"
 #include "utils/url.h"
 #include "utils/corestrings.h"
 #include "netsurf/fetch.h"
@@ -59,6 +58,7 @@
 #include "desktop/searchweb.h"
 #include "content/backing_store.h"
 
+#include "riscos/filename.h"
 #include "riscos/gui.h"
 #include "riscos/bitmap.h"
 #include "riscos/wimputils.h"

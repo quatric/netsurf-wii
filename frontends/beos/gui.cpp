@@ -49,7 +49,6 @@
 extern "C" {
 
 #include "utils/nsoption.h"
-#include "utils/filename.h"
 #include "utils/log.h"
 #include "utils/messages.h"
 #include "utils/url.h"
@@ -634,9 +633,6 @@ static void gui_init(int argc, char** argv)
 
 	check_homedir();
 
-	// make sure the cache dir exists
-	create_directory(TEMP_FILENAME_PREFIX, 0700);
-
 	//nsbeos_completion_init();
 
 
@@ -921,13 +917,7 @@ void nsbeos_gui_view_source(struct hlcache_handle *content)
 			done = true;
 	}
 	if (!done) {
-		/* We cannot release the requested filename until after it
-		 * has finished being used. As we can't easily find out when
-		 * this is, we simply don't bother releasing it and simply
-		 * allow it to be re-used next time NetSurf is started. The
-		 * memory overhead from doing this is under 1 byte per
-		 * filename. */
-		BString filename(filename_request());
+		BString filename(tmpname(NULL));
 		if (filename.IsEmpty()) {
 			beos_warn_user("NoMemory", 0);
 			return;
@@ -947,8 +937,7 @@ void nsbeos_gui_view_source(struct hlcache_handle *content)
 			/* we unref(mime) later on, we just leak on error */
 		}
 
-		path.SetTo(TEMP_FILENAME_PREFIX);
-		path.Append(filename.String());
+		path.SetTo(filename.String());
 		BFile file(path.Path(), B_WRITE_ONLY | B_CREATE_FILE);
 		err = file.InitCheck();
 		if (err < B_OK) {
