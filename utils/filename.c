@@ -403,7 +403,8 @@ static struct directory *filename_create_directory(const char *prefix)
 	char *last_1, *last_2;
 	int index;
 	struct directory *old_dir, *new_dir, *prev_dir = NULL;
-	char dir_prefix[16];
+#define DIR_PREFIX_LEN 16
+	char dir_prefix[DIR_PREFIX_LEN];
 	int i;
 
 	/* get the lowest unique prefix, or use the provided one */
@@ -416,10 +417,12 @@ static struct directory *filename_create_directory(const char *prefix)
 			prev_dir = old_dir;
 		}
 
-		sprintf(dir_prefix, "%.2i/%.2i/%.2i/",
-				((index >> 12) & 63),
-				((index >> 6) & 63),
-				((index >> 0) & 63));
+		snprintf(dir_prefix,
+			 DIR_PREFIX_LEN,
+			 "%.2i/%.2i/%.2i/",
+			 ((index >> 12) & 63),
+			 ((index >> 6) & 63),
+			 ((index >> 0) & 63));
 
 		prefix = dir_prefix;
 	} else {
