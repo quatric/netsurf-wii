@@ -917,7 +917,7 @@ void nsbeos_gui_view_source(struct hlcache_handle *content)
 			done = true;
 	}
 	if (!done) {
-		BString filename(tmpname(NULL));
+		BString filename(tmpnam(NULL));
 		if (filename.IsEmpty()) {
 			beos_warn_user("NoMemory", 0);
 			return;
