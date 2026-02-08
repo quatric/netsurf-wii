@@ -72,7 +72,7 @@ monkey_process_command(void)
   
 	if (fgets(buffer, PATH_MAX, stdin) == NULL) {
 		/* end of input or read error so issue QUIT */
-		sprintf(buffer, "QUIT\n");
+		snprintf(buffer, PATH_MAX, "QUIT\n");
 	}
 
 	/* remove newline */

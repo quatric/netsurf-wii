@@ -321,6 +321,7 @@ search_web_omni(const char *term,
 {
 	nserror ret;
 	nsurl *url;
+	size_t etermsize;
 	char *eterm; /* encoded/altered search term */
 
 	if ((flags & SEARCH_WEB_OMNI_SEARCHONLY) == 0) {
@@ -333,11 +334,12 @@ search_web_omni(const char *term,
 		}
 
 		/* try with adding default scheme */
-		eterm = malloc(strlen(term) + SLEN("https://") + 1);
+		etermsize = strlen(term) + SLEN("https://") + 1;
+		eterm = malloc(etermsize);
 		if (eterm == NULL) {
 			return NSERROR_NOMEM;
 		}
-		sprintf(eterm, "https://%s", term);
+		snprintf(eterm, etermsize, "https://%s", term);
 		ret = nsurl_create(eterm, &url);
 		free(eterm);
 		if (ret == NSERROR_OK) {

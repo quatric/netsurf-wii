@@ -2137,6 +2137,7 @@ openfile_button_clicked_cb(GtkWidget *widget, gpointer data)
 
 	response = gtk_dialog_run(GTK_DIALOG(dlgOpen));
 	if (response == GTK_RESPONSE_OK) {
+		size_t urltxt_size;
 		char *urltxt;
 		gchar *filename;
 		nserror res;
@@ -2144,9 +2145,10 @@ openfile_button_clicked_cb(GtkWidget *widget, gpointer data)
 
 		filename = gtk_file_chooser_get_filename(GTK_FILE_CHOOSER(dlgOpen));
 
-		urltxt = malloc(strlen(filename) + FILE_SCHEME_PREFIX_LEN + 1);
+		urltxt_size = strlen(filename) + FILE_SCHEME_PREFIX_LEN + 1;
+		urltxt = malloc(urltxt_size);
 		if (urltxt != NULL) {
-			sprintf(urltxt, FILE_SCHEME_PREFIX"%s", filename);
+			snprintf(urltxt, urltxt_size, FILE_SCHEME_PREFIX"%s", filename);
 
 			res = nsurl_create(urltxt, &url);
 			if (res == NSERROR_OK) {
