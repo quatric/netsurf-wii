@@ -54,6 +54,7 @@ max_fetchers_per_host:5
 max_cached_fetch_handles:6
 max_retried_fetches:1
 curl_fetch_timeout:30
+fetch_redirect_limit:10
 suppress_curl_debug:1
 target_blank:1
 button_2_tab:1
