@@ -1,0 +1,156 @@
+diff --git a/source/wupc.c b/source/wupc.c
+index 75b8840..2d3d0cc 100644
+--- a/source/wupc.c
++++ b/source/wupc.c
+@@ -25,13 +25,13 @@
+ #include "wupc_structs.h"
+ #include "wupc/wupc.h"
+ 
+-extern __typeof(wiiuse_register) __real_wiiuse_register;
++extern __typeof(wiiuse_accept) __real_wiiuse_accept;
++extern __typeof(wiiuse_connect) __real_wiiuse_connect;
+ 
+ static vu32 __WUPC_ChannelsUsed = 0;
+ 
+-static conf_pads __WUPC_Devices;
+ static struct WUPCStat *__WUPC_Connected[4];
+-static struct WUPCStat __WUPC_Status[CONF_PAD_MAX_REGISTERED];
++static struct WUPCStat __WUPC_Status[4];
+ static struct WUPCData __WUPC_PadData[4];
+ static struct WUPCButtons __WUPC_PadButtons[4];
+ 
+@@ -115,7 +115,7 @@ static s32 __WUPC_HandleDisconnect(void *arg,struct bte_pcb *pcb __attribute__((
+ 		__WUPC_Connected[i] = __WUPC_Connected[i+1];
+ 	__WUPC_Connected[3] = NULL;
+ 
+-	for(i = 0; i < CONF_PAD_MAX_REGISTERED; ++i)
++	for(i = 0; i < CHAN_MAX; ++i)
+ 	{
+ 		if(__WUPC_Status[i].channel > stat->channel && __WUPC_Status[i].channel != CHAN_MAX)
+ 		{
+@@ -127,8 +127,26 @@ static s32 __WUPC_HandleDisconnect(void *arg,struct bte_pcb *pcb __attribute__((
+ 	return err;
+ }
+ 
+-int __WUPC_RegisterPad(struct WUPCStat *stat, struct bd_addr *_bdaddr)
++static s32 __WUPC_ConnectStep2(void *arg, struct bte_pcb *pcb, u8 err)
++{
++	(void)arg;
++	if(err != ERR_OK)
++		return err;
++	return bte_connectasync_step2(pcb, __WUPC_HandleConnect);
++}
++
++static s32 __WUPC_AcceptStep2(void *arg, struct bte_pcb *pcb, u8 err)
++{
++	(void)arg;
++	if(err != ERR_OK)
++		return err;
++	return bte_listenasync_step2(pcb, __WUPC_HandleConnect);
++}
++
++static int __WUPC_RegisterPad(struct WUPCStat *stat, struct bd_addr *_bdaddr, bool accept)
+ {
++	s32 err;
++
+ 	stat->channel = CHAN_MAX;
+ 	stat->bdaddr = *_bdaddr;
+ 
+@@ -143,43 +161,66 @@ int __WUPC_RegisterPad(struct WUPCStat *stat, struct bd_addr *_bdaddr)
+ 	bte_received(stat->sock, __WUPC_HandleData);
+ 	bte_disconnected(stat->sock, __WUPC_HandleDisconnect);
+ 
+-	bte_registerdeviceasync(stat->sock, _bdaddr, __WUPC_HandleConnect);
++	if(accept)
++		err = bte_listenasync(stat->sock, _bdaddr, __WUPC_AcceptStep2);
++	else
++		err = bte_connectasync(stat->sock, _bdaddr, __WUPC_ConnectStep2);
+ 
+-	return ERR_OK;
++	return err == ERR_OK;
+ }
+ 
+-int __wrap_wiiuse_register(struct wiimote_listen_t *wml, struct bd_addr *bdaddr, struct wiimote_t *(*assign_cb)(struct bd_addr *bdaddr))
++static struct WUPCStat *__WUPC_FindPad(struct bd_addr *bdaddr)
+ {
+-	if(__WUPC_Inited)
++	u32 i;
++	struct WUPCStat *available = NULL;
++
++	for(i = 0; i < CHAN_MAX; ++i)
+ 	{
+-		u8 got_addr[] = { bdaddr->addr[5], bdaddr->addr[4], bdaddr->addr[3], bdaddr->addr[2], bdaddr->addr[1], bdaddr->addr[0] };
+-		u32 i;
+-		for(i = 0; i < __WUPC_Devices.num_registered; ++i)
+-		{
+-			if(strstr(__WUPC_Devices.registered[i].name, "-UC") != NULL)
+-			{
+-				u8 *cur_bdaddr = __WUPC_Devices.registered[i].bdaddr;
+-				if(memcmp(cur_bdaddr, got_addr, 6) == 0)
+-					return __WUPC_RegisterPad(&__WUPC_Status[i], bdaddr);
+-			}
+-		}
++		if(__WUPC_Status[i].channel == CHAN_MAX)
++			available = &__WUPC_Status[i];
++		if(memcmp(&__WUPC_Status[i].bdaddr, bdaddr, sizeof(*bdaddr)) == 0)
++			return &__WUPC_Status[i];
+ 	}
+-	return __real_wiiuse_register(wml,bdaddr,assign_cb);
++	return available;
++}
++
++int __wrap_wiiuse_accept(struct wiimote_listen_t *wml, struct bd_addr *bdaddr,
++		const u8 *name, struct wiimote_t *(*assign_cb)(wiimote_listen *, u8))
++{
++	struct WUPCStat *stat;
++
++	if(__WUPC_Inited && name != NULL && strstr((const char *)name, "-UC") != NULL) {
++		stat = __WUPC_FindPad(bdaddr);
++		if(stat != NULL)
++			return __WUPC_RegisterPad(stat, bdaddr, true);
++	}
++	return __real_wiiuse_accept(wml, bdaddr, name, assign_cb);
++}
++
++int __wrap_wiiuse_connect(struct wiimote_listen_t *wml, struct bd_addr *bdaddr,
++		const u8 *name, struct wiimote_t *(*assign_cb)(wiimote_listen *, u8))
++{
++	struct WUPCStat *stat;
++
++	if(__WUPC_Inited && name != NULL && strstr((const char *)name, "-UC") != NULL) {
++		stat = __WUPC_FindPad(bdaddr);
++		if(stat != NULL)
++			return __WUPC_RegisterPad(stat, bdaddr, false);
++	}
++	return __real_wiiuse_connect(wml, bdaddr, name, assign_cb);
+ }
+ 
+ void WUPC_Init()
+ {
+ 	if(__WUPC_Inited == 1)
+ 		return;
+-	if(CONF_GetPadDevices(&__WUPC_Devices) < 0)
+-		return;
+-
+ 	u32 i;
+ 	for(i = 0; i < CHAN_MAX; ++i)
++	{
+ 		__WUPC_Connected[i] = NULL;
+-
+-	for(i = 0; i < CONF_PAD_MAX_REGISTERED; ++i)
+ 		__WUPC_Status[i].channel = CHAN_MAX;
++		memset(&__WUPC_Status[i].bdaddr, 0, sizeof(__WUPC_Status[i].bdaddr));
++	}
+ 
+ 	__WUPC_ChannelsUsed = 0;
+ 	__WUPC_Inited = 1;
+@@ -199,7 +240,7 @@ void WUPC_Shutdown()
+ 	__WUPC_Inited = 0;
+ 
+ 	u32 i;
+-	for(i = 0; i < CONF_PAD_MAX_REGISTERED; ++i)
++	for(i = 0; i < CHAN_MAX; ++i)
+ 	{
+ 		if(__WUPC_Status[i].channel != CHAN_MAX)
+ 			bte_disconnect(__WUPC_Status[i].sock);
+

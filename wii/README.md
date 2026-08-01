@@ -1,0 +1,109 @@
+# NetSurf on Wii
+
+Wii port maintained by quatric <quatricsoftware@gmail.com>.
+
+This is an experimental port of the complete NetSurf framebuffer browser to
+the Nintendo Wii. It cross-compiles NetSurf and its support libraries for
+PowerPC/Gekko, uses SDL 1.2 and libnsfb for display, and uses the Wii curl and
+mbedTLS packages maintained by rw-r-r-0644 for HTTPS.
+
+The resulting application is under `wii/dist/apps/netsurf/`. Copy that whole
+directory to `sd:/apps/netsurf/` and start it from the Homebrew Channel. The
+CA bundle, Messages catalogue, CSS, and built-in pages must remain beside
+`boot.dol`. With a USB keyboard, Ctrl+P exports the current page to
+`sd:/apps/netsurf/netsurf.pdf`. Open
+`file:///sd:/apps/netsurf/js-smoke.html` for a small JavaScript/DOM diagnostic
+page.
+
+When testing in Dolphin, install the complete `apps/netsurf` directory into
+Dolphin's emulated SD card. Opening `boot.dol` directly does not make sibling
+host files visible as `sd:/apps/netsurf`, so the browser will start without
+its Messages, CSS, or welcome page. Runtime progress is written to Dolphin's
+OSReport log under the `NetSurf Wii:` prefix.
+
+## Prerequisites
+
+- devkitPro with `wii-dev`
+- `wii-sdl`, `ppc-zlib`, `ppc-libpng`, `ppc-libjpeg-turbo`, `ppc-libwebp`,
+  and `ppc-freetype`
+- Git, GNU Make, GNU flex, and a recent GNU bison
+- Licensed `FOT-RodinNTLGPro-M.otf` and `FOT-RodinNTLGPro-B.otf` files in
+  `~/Library/Fonts`, or another directory selected with `RODIN_FONT_DIR`
+
+## Build
+
+```sh
+cd /path/to/netsurf-wii
+./wii/bootstrap-network.sh
+./wii/bootstrap-browser-deps.sh
+./wii/build-browser.sh -j8
+```
+
+`build-browser.sh` uses cross-built NetSurf support libraries under
+`wii/.deps/netsurf-workspace/inst-powerpc-eabi` and GNU libiconv under
+`wii/.deps/iconv`. WebP comes from devkitPro, while JPEG XL 0.11.2 and
+libharu 2.4.6 are cross-built under `wii/.deps/optional/prefix`.
+The pinned FIX94 libwupc source is adapted to current libogc and installed
+under `wii/.deps/input/prefix` by `bootstrap-input.sh`.
+`bootstrap-browser-deps.sh` creates the local prefixes. They are intentionally
+untracked. The
+rw-r-r-0644 packages are also extracted locally because installing the older
+libwiisocket package globally conflicts with socket headers now supplied by
+current libogc.
+
+The build copies FOT-Rodin NTLG Pro into the ignored application package at
+`apps/netsurf/fonts`; the licensed source fonts are not copied into the source
+tree. The framebuffer frontend does not currently consume downloaded CSS
+webfonts, so Rodin is used for generic and named page font requests.
+
+`RODIN_REGULAR_SOURCE` and `RODIN_BOLD_SOURCE` can override the two input font
+paths. The GitHub Actions build uses those overrides with DejaVu solely to
+produce a redistributable CI test package; local builds continue to use the
+licensed FOT-Rodin NTLG Pro faces by default.
+
+## Continuous integration
+
+`.github/workflows/wii-build.yaml` builds in the pinned official devkitPPC
+container on pushes, pull requests, and manual dispatches. It bootstraps every
+Wii dependency, verifies the DOL and package metadata, audits build provenance,
+and uploads a checksummed `netsurf-wii-ci.tar.gz` artifact for 14 days.
+
+Release publishing is intentionally not part of the build workflow. Releases
+for `quatric/netsurf-wii` must be started separately and only after an explicit
+approval to publish.
+
+For a quick hardware/display/network diagnostic independent of the full
+browser, `./wii/bootstrap-deps.sh && make -C wii package` builds the small
+`netsurf-wii-smoke` application.
+
+## Port architecture
+
+```text
+NetSurf core -> framebuffer frontend -> libnsfb -> SDL 1.2 -> libogc/GX
+NetSurf fetcher -> libcurl -> libogc BSD sockets -> Wii network interface
+```
+
+## Current limitations
+
+- This build has not yet been tested on physical Wii hardware.
+- Wii Remote IR is polled directly on all four channels and emitted as absolute
+  pointer movement; A and B map to the left and right mouse buttons. SDL's Wii
+  joystick is also polled to keep its controller state current.
+- Wii U Pro Controllers are detected through libwupc before SDL initializes
+  WPAD. GlowWii-style four-channel aggregation gives them precedence over
+  GameCube pads. A/B click, the D-pad sends arrows, Plus/Minus send `+`/`-`,
+  X/Y send Page Down/Page Up, and Home sends Escape.
+- WebP and JPEG XL image decoding are enabled. PDF export uses libharu and a
+  fixed output path; a Wii-native filename picker has not been implemented.
+- JavaScript is enabled by default through NetSurf's bundled Duktape engine;
+  `js-smoke.html` provides a target-side JavaScript/DOM test. Modern sites can
+  still exceed the Wii's memory or depend on browser APIs NetSurf does not
+  implement.
+- Cookies and the CA bundle are redirected to `sd:/apps/netsurf/`; downloads
+  and user choices still need Wii-specific defaults and runtime testing.
+- Network startup is asynchronous so a missing Dolphin network configuration
+  does not prevent the UI from appearing. The initial page is local; network
+  requests made before socket startup completes can fail and may need reload.
+
+The small `libnsfb` patch adds devkitPPC/newlib endian detection and Wii input
+polling. It is kept separate so it can be proposed upstream.

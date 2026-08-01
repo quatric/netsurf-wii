@@ -26,7 +26,9 @@
 
 #include <hpdf.h>
 
-#include "desktop/font.h"
+#include "utils/errors.h"
+#include "netsurf/layout.h"
+#include "netsurf/plot_style.h"
 
 bool haru_nsfont_apply_style(const plot_font_style_t *fstyle,
 			      	HPDF_Doc doc, HPDF_Page page,
@@ -34,6 +36,6 @@ bool haru_nsfont_apply_style(const plot_font_style_t *fstyle,
 
 void haru_nsfont_set_scale(float s);
 
-extern const struct font_functions haru_nsfont;
+extern const struct gui_layout_table haru_nsfont;
 
 #endif

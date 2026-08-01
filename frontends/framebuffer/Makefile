@@ -51,9 +51,19 @@ ifeq ($(NETSURF_FB_FONTLIB),freetype)
 endif
 
 # non optional pkg-configed libs
-LDFLAGS += -Wl,--whole-archive
-$(eval $(call pkg_config_find_and_add,libnsfb,libnsfb))
-LDFLAGS += -Wl,--no-whole-archive
+ifeq ($(NETSURF_WII),YES)
+  CFLAGS += $(shell $(PKG_CONFIG) --cflags libnsfb) -Dmain=SDL_main
+  LDFLAGS += -Wl,--whole-archive -lnsfb -Wl,--no-whole-archive
+  LDFLAGS += $(shell $(PKG_CONFIG) --libs-only-L libnsfb)
+  LDFLAGS += -lSDLmain -lSDL -laesnd -lwiiuse -lwupc -lbte -lwiikeyboard \
+	-lfat -lopengx -logc -lm
+  LDFLAGS += -Wl,--wrap,wiiuse_accept -Wl,--wrap,wiiuse_connect
+  LDFLAGS += -liconv -llcms2
+else
+  LDFLAGS += -Wl,--whole-archive
+  $(eval $(call pkg_config_find_and_add,libnsfb,libnsfb))
+  LDFLAGS += -Wl,--no-whole-archive
+endif
 
 # ---------------------------------------------------------------------------
 # Target setup
@@ -174,6 +184,10 @@ $(eval $(foreach V,$(filter FB_FONT_$(NETSURF_FB_FONTLIB)_%,$(.VARIABLES)),$(cal
 # S_FRONTEND are sources purely for the framebuffer build
 S_FRONTEND := gui.c framebuffer.c schedule.c bitmap.c fetch.c	\
 	findfile.c corewindow.c local_history.c clipboard.c
+
+ifeq ($(NETSURF_WII),YES)
+  S_FRONTEND += wii_compat.c
+endif
 
 # toolkit sources
 S_FRAMEBUFFER_FBTK := fbtk.c event.c fill.c bitmap.c user.c window.c 	\
