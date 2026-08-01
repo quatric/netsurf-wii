@@ -1,0 +1,12 @@
+<!doctype html>
+<html>
+<head><meta charset="utf-8"><title>NetSurf Wii JavaScript test</title></head>
+<body>
+<h1>NetSurf Wii JavaScript test</h1>
+<p id="result">JavaScript did not run.</p>
+<script>
+document.getElementById('result').textContent = 'JavaScript ran successfully.';
+throw new Error('NetSurf Wii page JavaScript executed');
+</script>
+</body>
+</html>

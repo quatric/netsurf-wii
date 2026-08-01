@@ -327,7 +327,7 @@ else
   endif
 endif
 	$(VQ)echo "LINKDEPS: $(EXETARGET)"
-	$(Q)echo -n "$(EXETARGET) $(DEPROOT)/link.d: " > $(DEPROOT)/link.d
+	$(Q)printf '%s' "$(EXETARGET) $(DEPROOT)/link.d: " > $(DEPROOT)/link.d
 	$(Q)$(PERL) tools/linktrace-to-depfile.pl < $(DEPROOT)/link-raw.d >> $(DEPROOT)/link.d
 ifeq ($(NETSURF_STRIP_BINARY),YES)
 	$(VQ)echo "   STRIP: $(EXETARGET)"
@@ -461,4 +461,3 @@ messages-fetch-tfx:
 # merge property files into fat messages
 messages-import-tfx: messages-fetch-tfx
 	for tfxlang in $(FAT_LANGUAGES);do $(PERL) ./utils/import-messages.pl -l $${tfxlang} -p any -f transifex -o resources/FatMessages -i resources/FatMessages -I Messages.any.$${tfxlang}.tfx ; $(RM) Messages.any.$${tfxlang}.tfx; done
-

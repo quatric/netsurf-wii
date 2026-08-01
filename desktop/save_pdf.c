@@ -58,33 +58,42 @@
 #include "utils/log.h"
 #include "utils/utils.h"
 #include "utils/useragent.h"
-#include "content/hlcache.h"
 #include "utils/nsoption.h"
 #include "netsurf/bitmap.h"
+#include "netsurf/misc.h"
 
 #include "netsurf/plotters.h"
 #include "desktop/print.h"
 #include "desktop/printer.h"
+#include "desktop/gui_internal.h"
 
 #include "font_haru.h"
 
 /* #define PDF_DEBUG */
 /* #define PDF_DEBUG_DUMPGRID */
 
-static bool pdf_plot_rectangle(int x0, int y0, int x1, int y1, const plot_style_t *style);
-static bool pdf_plot_line(int x0, int y0, int x1, int y1, const plot_style_t *pstyle);
-static bool pdf_plot_polygon(const int *p, unsigned int n, const plot_style_t *style);
-static bool pdf_plot_clip(const struct rect *clip);
-static bool pdf_plot_text(int x, int y, const char *text, size_t length,
-		const plot_font_style_t *fstyle);
-static bool pdf_plot_disc(int x, int y, int radius, const plot_style_t *style);
-static bool pdf_plot_arc(int x, int y, int radius, int angle1, int angle2,
-    		const plot_style_t *style);
-static bool pdf_plot_bitmap_tile(int x, int y, int width, int height,
-		struct bitmap *bitmap, colour bg,
-		bitmap_flags_t flags);
-static bool pdf_plot_path(const float *p, unsigned int n, colour fill, float width,
-		colour c, const float transform[6]);
+static nserror pdf_plot_rectangle(const struct redraw_context *ctx,
+		const plot_style_t *style, const struct rect *rect);
+static nserror pdf_plot_line(const struct redraw_context *ctx,
+		const plot_style_t *style, const struct rect *line);
+static nserror pdf_plot_polygon(const struct redraw_context *ctx,
+		const plot_style_t *style, const int *p, unsigned int n);
+static nserror pdf_plot_clip(const struct redraw_context *ctx,
+		const struct rect *clip);
+static nserror pdf_plot_text(const struct redraw_context *ctx,
+		const plot_font_style_t *fstyle, int x, int y,
+		const char *text, size_t length);
+static nserror pdf_plot_disc(const struct redraw_context *ctx,
+		const plot_style_t *style, int x, int y, int radius);
+static nserror pdf_plot_arc(const struct redraw_context *ctx,
+		const plot_style_t *style, int x, int y, int radius,
+		int angle1, int angle2);
+static nserror pdf_plot_bitmap_tile(const struct redraw_context *ctx,
+		struct bitmap *bitmap, int x, int y, int width, int height,
+		colour bg, bitmap_flags_t flags);
+static nserror pdf_plot_path(const struct redraw_context *ctx,
+		const plot_style_t *style, const float *p, unsigned int n,
+		const float transform[6]);
 
 static HPDF_Image pdf_extract_image(struct bitmap *bitmap);
 
@@ -167,9 +176,15 @@ const struct printer pdf_printer = {
 static char *owner_pass;
 static char *user_pass;
 
-bool pdf_plot_rectangle(int x0, int y0, int x1, int y1, const plot_style_t *pstyle)
+static nserror pdf_plot_rectangle(const struct redraw_context *ctx,
+		const plot_style_t *pstyle, const struct rect *rect)
 {
 	DashPattern_e dash;
+	int x0 = rect->x0;
+	int y0 = rect->y0;
+	int x1 = rect->x1;
+	int y1 = rect->y1;
+	(void)ctx;
 #ifdef PDF_DEBUG
 	NSLOG(netsurf, INFO, "%d %d %d %d %f %X", x0, y0, x1, y1,
 	      page_height - y0, pstyle->fill_colour);
@@ -215,19 +230,21 @@ bool pdf_plot_rectangle(int x0, int y0, int x1, int y1, const plot_style_t *psty
 		apply_clip_and_mode(false,
 				NS_TRANSPARENT,
 				pstyle->stroke_colour,
-				plot_style_int_to_fixed(pstyle->stroke_width),
+				plot_style_fixed_to_float(pstyle->stroke_width),
 				dash);
 
 		HPDF_Page_Rectangle(pdf_page, x0, page_height - y0, x1 - x0, -(y1 - y0));
 		HPDF_Page_Stroke(pdf_page);
 	}
 
-	return true;
+	return NSERROR_OK;
 }
 
-bool pdf_plot_line(int x0, int y0, int x1, int y1, const plot_style_t *pstyle)
+static nserror pdf_plot_line(const struct redraw_context *ctx,
+		const plot_style_t *pstyle, const struct rect *line)
 {
 	DashPattern_e dash;
+	(void)ctx;
 
 	switch (pstyle->stroke_type) {
 	case PLOT_OP_TYPE_DOT:
@@ -247,26 +264,28 @@ bool pdf_plot_line(int x0, int y0, int x1, int y1, const plot_style_t *pstyle)
 	apply_clip_and_mode(false,
 			NS_TRANSPARENT,
 			pstyle->stroke_colour,
-			plot_style_int_to_fixed(pstyle->stroke_width),
+			plot_style_fixed_to_float(pstyle->stroke_width),
 			dash);
 
-	HPDF_Page_MoveTo(pdf_page, x0, page_height - y0);
-	HPDF_Page_LineTo(pdf_page, x1, page_height - y1);
+	HPDF_Page_MoveTo(pdf_page, line->x0, page_height - line->y0);
+	HPDF_Page_LineTo(pdf_page, line->x1, page_height - line->y1);
 	HPDF_Page_Stroke(pdf_page);
 
-	return true;
+	return NSERROR_OK;
 }
 
-bool pdf_plot_polygon(const int *p, unsigned int n, const plot_style_t *style)
+static nserror pdf_plot_polygon(const struct redraw_context *ctx,
+		const plot_style_t *style, const int *p, unsigned int n)
 {
 	unsigned int i;
+	(void)ctx;
 #ifdef PDF_DEBUG
 	int pmaxx = p[0], pmaxy = p[1];
 	int pminx = p[0], pminy = p[1];
 	NSLOG(netsurf, INFO, ".");
 #endif
 	if (n == 0)
-		return true;
+		return NSERROR_OK;
 
 	apply_clip_and_mode(false, style->fill_colour, NS_TRANSPARENT, 0., DashPattern_eNone);
 
@@ -288,13 +307,15 @@ bool pdf_plot_polygon(const int *p, unsigned int n, const plot_style_t *style)
 
 	HPDF_Page_Fill(pdf_page);
 
-	return true;
+	return NSERROR_OK;
 }
 
 
 /**here the clip is only queried */
-bool pdf_plot_clip(const struct rect *clip)
+static nserror pdf_plot_clip(const struct redraw_context *ctx,
+		const struct rect *clip)
 {
+	(void)ctx;
 #ifdef PDF_DEBUG
 	NSLOG(netsurf, INFO, "%d %d %d %d", clip->x0, clip->y0, clip->x1,
 	      clip->y1);
@@ -310,12 +331,14 @@ bool pdf_plot_clip(const struct rect *clip)
 
 	clip_update_needed = true;
 
-	return true;
+	return NSERROR_OK;
 }
 
-bool pdf_plot_text(int x, int y, const char *text, size_t length,
-		const plot_font_style_t *fstyle)
+static nserror pdf_plot_text(const struct redraw_context *ctx,
+		const plot_font_style_t *fstyle, int x, int y,
+		const char *text, size_t length)
 {
+	(void)ctx;
 #ifdef PDF_DEBUG
 	NSLOG(netsurf, INFO, ". %d %d %.*s", x, y, (int)length, text);
 #endif
@@ -324,7 +347,7 @@ bool pdf_plot_text(int x, int y, const char *text, size_t length,
 	HPDF_REAL size;
 
 	if (length == 0)
-		return true;
+		return NSERROR_OK;
 
 	apply_clip_and_mode(true, fstyle->foreground, NS_TRANSPARENT, 0.,
 			DashPattern_eNone);
@@ -336,7 +359,7 @@ bool pdf_plot_text(int x, int y, const char *text, size_t length,
 	 * encoding needs to be UTF-8 or other Unicode encoding.  */
 	word = (char *)malloc( sizeof(char) * (length+1) );
 	if (word == NULL)
-		return false;
+		return NSERROR_NOMEM;
 	memcpy(word, text, length);
 	word[length] = '\0';
 
@@ -344,11 +367,13 @@ bool pdf_plot_text(int x, int y, const char *text, size_t length,
 
 	free(word);
 
-	return true;
+	return NSERROR_OK;
 }
 
-bool pdf_plot_disc(int x, int y, int radius, const plot_style_t *style)
+static nserror pdf_plot_disc(const struct redraw_context *ctx,
+		const plot_style_t *style, int x, int y, int radius)
 {
+	(void)ctx;
 #ifdef PDF_DEBUG
 	NSLOG(netsurf, INFO, ".");
 #endif
@@ -375,11 +400,14 @@ bool pdf_plot_disc(int x, int y, int radius, const plot_style_t *style)
 		HPDF_Page_Stroke(pdf_page);
 	}
 
-	return true;
+	return NSERROR_OK;
 }
 
-bool pdf_plot_arc(int x, int y, int radius, int angle1, int angle2, const plot_style_t *style)
+static nserror pdf_plot_arc(const struct redraw_context *ctx,
+		const plot_style_t *style, int x, int y, int radius,
+		int angle1, int angle2)
 {
+	(void)ctx;
 #ifdef PDF_DEBUG
 	NSLOG(netsurf, INFO, "%d %d %d %d %d %X", x, y, radius, angle1,
 	      angle2, style->stroke_colour);
@@ -397,30 +425,31 @@ bool pdf_plot_arc(int x, int y, int radius, int angle1, int angle2, const plot_s
 	HPDF_Page_Arc(pdf_page, x, page_height - y, radius, angle1, angle2);
 
 	HPDF_Page_Stroke(pdf_page);
-	return true;
+	return NSERROR_OK;
 }
 
 
-bool pdf_plot_bitmap_tile(int x, int y, int width, int height,
-		struct bitmap *bitmap, colour bg,
-  		bitmap_flags_t flags)
+static nserror pdf_plot_bitmap_tile(const struct redraw_context *ctx,
+		struct bitmap *bitmap, int x, int y, int width, int height,
+		colour bg, bitmap_flags_t flags)
 {
 	HPDF_Image image;
 	HPDF_REAL current_x, current_y ;
 	HPDF_REAL max_width, max_height;
+	(void)ctx;
 
 #ifdef PDF_DEBUG
 	NSLOG(netsurf, INFO, "%d %d %d %d %p 0x%x", x, y, width, height,
 	      bitmap, bg);
 #endif
- 	if (width == 0 || height == 0)
- 		return true;
+	if (width == 0 || height == 0)
+		return NSERROR_OK;
 
 	apply_clip_and_mode(false, NS_TRANSPARENT, NS_TRANSPARENT, 0., DashPattern_eNone);
 
 	image = pdf_extract_image(bitmap);
 	if (!image)
-		return false;
+		return NSERROR_NOMEM;
 
 	/*The position of the next tile*/
 	max_width =  (flags & BITMAPF_REPEAT_X) ? page_width : width;
@@ -433,45 +462,12 @@ bool pdf_plot_bitmap_tile(int x, int y, int width, int height,
 					page_height - current_y - y - height,
 					width, height);
 
-	return true;
+	return NSERROR_OK;
 }
 
-HPDF_Image pdf_extract_image(struct bitmap *bitmap)
+static HPDF_Image pdf_extract_image(struct bitmap *bitmap)
 {
 	HPDF_Image image = NULL;
-	hlcache_handle *content = NULL;
-
-	/* TODO - get content from bitmap pointer */
-
-	if (content) {
-		const char *source_data;
-		unsigned long source_size;
-
-		/*Not sure if I don't have to check if downloading has been
-		finished.
-		Other way - lock pdf plotting while fetching a website
-		*/
-		source_data = content_get_source_data(content, &source_size);
-
-		switch(content_get_type(content)){
-		/*Handle "embeddable" types of images*/
-		case CONTENT_JPEG:
- 			image = HPDF_LoadJpegImageFromMem(pdf_doc,
- 					(const HPDF_BYTE *) source_data,
- 					source_size);
- 			break;
-
-		/*Disabled until HARU PNG support will be more stable.
-
-		case CONTENT_PNG:
-			image = HPDF_LoadPngImageFromMem(pdf_doc,
-					(const HPDF_BYTE *)content->source_data,
-					content->total_size);
-			break;*/
-		default:
-			break;
-		}
-	}
 
 	if (!image) {
 		HPDF_Image smask;
@@ -480,10 +476,10 @@ HPDF_Image pdf_extract_image(struct bitmap *bitmap)
 		int i, j;
 
 		/*Handle pixmaps*/
-		img_buffer = bitmap_get_buffer(bitmap);
-		img_width = bitmap_get_width(bitmap);
-		img_height = bitmap_get_height(bitmap);
-		img_rowstride = bitmap_get_rowstride(bitmap);
+		img_buffer = guit->bitmap->get_buffer(bitmap);
+		img_width = guit->bitmap->get_width(bitmap);
+		img_height = guit->bitmap->get_height(bitmap);
+		img_rowstride = guit->bitmap->get_rowstride(bitmap);
 
 		rgb_buffer = (unsigned char *)malloc(3 * img_width * img_height);
 		alpha_buffer = (unsigned char *)malloc(img_width * img_height);
@@ -606,24 +602,31 @@ static inline float transform_y(const float transform[6], float x, float y)
 		- (transform[1] * x + transform[3] * y + transform[5]);
 }
 
-bool pdf_plot_path(const float *p, unsigned int n, colour fill, float width,
-		colour c, const float transform[6])
+static nserror pdf_plot_path(const struct redraw_context *ctx,
+		const plot_style_t *style, const float *p, unsigned int n,
+		const float transform[6])
 {
 	unsigned int i;
 	bool empty_path;
+	colour fill = (style->fill_type == PLOT_OP_TYPE_NONE) ?
+		NS_TRANSPARENT : style->fill_colour;
+	colour c = (style->stroke_type == PLOT_OP_TYPE_NONE) ?
+		NS_TRANSPARENT : style->stroke_colour;
+	float width = plot_style_fixed_to_float(style->stroke_width);
+	(void)ctx;
 
 #ifdef PDF_DEBUG
 	NSLOG(netsurf, INFO, ".");
 #endif
 
 	if (n == 0)
-		return true;
+		return NSERROR_OK;
 
 	if (c == NS_TRANSPARENT && fill == NS_TRANSPARENT)
-		return true;
+		return NSERROR_OK;
 
 	if (p[0] != PLOTTER_PATH_MOVE)
-		return false;
+		return NSERROR_INVALID;
 
 	apply_clip_and_mode(false, fill, c, width, DashPattern_eNone);
 
@@ -656,13 +659,13 @@ bool pdf_plot_path(const float *p, unsigned int n, colour fill, float width,
 			empty_path = false;
 		} else {
 			NSLOG(netsurf, INFO, "bad path command %f", p[i]);
-			return false;
+			return NSERROR_INVALID;
 		}
 	}
 
 	if (empty_path) {
 		HPDF_Page_EndPath(pdf_page);
-		return true;
+		return NSERROR_OK;
 	}
 
 	if (fill != NS_TRANSPARENT) {
@@ -674,7 +677,7 @@ bool pdf_plot_path(const float *p, unsigned int n, colour fill, float width,
 	else
 		HPDF_Page_Stroke(pdf_page);
 
-	return true;
+	return NSERROR_OK;
 }
 
 /**
@@ -706,7 +709,7 @@ bool pdf_begin(struct print_settings *print_settings)
 
 
 #ifndef PDF_DEBUG
-	if (option_enable_PDF_compression)
+	if (nsoption_bool(enable_PDF_compression))
 		HPDF_SetCompressionMode(pdf_doc, HPDF_COMP_ALL); /*Compression on*/
 #endif
 	HPDF_SetInfoAttr(pdf_doc, HPDF_INFO_CREATOR, user_agent_string());
@@ -780,7 +783,7 @@ void pdf_end(void)
 	assert(settings->output != NULL);
 
 	/*Encryption on*/
-	if (option_enable_PDF_password)
+	if (nsoption_bool(enable_PDF_password))
 		guit->misc->pdf_password(&owner_pass, &user_pass,
 				(void *)settings->output);
 	else
@@ -795,7 +798,7 @@ nserror save_pdf(const char *path)
 {
 	nserror res = NSERROR_OK;
 
-	if (option_enable_PDF_password && owner_pass != NULL ) {
+	if (nsoption_bool(enable_PDF_password) && owner_pass != NULL ) {
 		HPDF_SetPassword(pdf_doc, owner_pass, user_pass);
 		HPDF_SetEncryptionMode(pdf_doc, HPDF_ENCRYPT_R3, 16);
 		free(owner_pass);
@@ -976,12 +979,12 @@ void pdfw_gs_dash(HPDF_Page page, DashPattern_e dash)
 			break;
 		}
 		case DashPattern_eDash: {
-			const HPDF_UINT16 dash_ptn[] = {3};
+			const HPDF_REAL dash_ptn[] = {3};
 			HPDF_Page_SetDash(page, dash_ptn, 1, 1);
 			break;
 		}
 		case DashPattern_eDotted: {
-			const HPDF_UINT16 dash_ptn[] = {1};
+			const HPDF_REAL dash_ptn[] = {1};
 			HPDF_Page_SetDash(page, dash_ptn, 1, 1);
 			break;
 		}

@@ -21,6 +21,7 @@
 #include <getopt.h>
 #include <assert.h>
 #include <string.h>
+#include <strings.h>
 #include <stdbool.h>
 #include <stdlib.h>
 #include <nsutils/time.h>
@@ -28,6 +29,16 @@
 #include <libnsfb.h>
 #include <libnsfb_plot.h>
 #include <libnsfb_event.h>
+
+#ifdef GEKKO
+#include <fat.h>
+#include <ogc/system.h>
+#include <wiisocket.h>
+#include "framebuffer/wii_compat.h"
+#define WII_LOG(...) SYS_Report("NetSurf Wii: " __VA_ARGS__)
+#else
+#define WII_LOG(...) ((void)0)
+#endif
 
 #include "utils/utils.h"
 #include "utils/nsoption.h"
@@ -43,6 +54,12 @@
 #include "netsurf/netsurf.h"
 #include "netsurf/cookie_db.h"
 #include "content/fetch.h"
+
+#if defined(GEKKO) && defined(WITH_PDF_EXPORT)
+#include "desktop/font_haru.h"
+#include "desktop/print.h"
+#include "desktop/save_pdf.h"
+#endif
 
 #include "framebuffer/gui.h"
 #include "framebuffer/fbtk.h"
@@ -466,6 +483,17 @@ static int fewidth;
 static int feheight;
 static const char *feurl;
 
+#ifdef GEKKO
+static void wii_network_initialised(int result, void *context)
+{
+	(void)context;
+	if (result < 0) {
+		fprintf(stderr, "Unable to initialise Wii networking (%d)\n",
+			result);
+	}
+}
+#endif
+
 static void
 framebuffer_pick_default_fename(void *ctx, const char *name, enum nsfb_type_e type)
 {
@@ -491,12 +519,25 @@ process_cmdline(int argc, char** argv)
 
 	fewidth = nsoption_int(window_width);
 	if (fewidth <= 0) {
+#ifdef GEKKO
+		fewidth = 640;
+#else
 		fewidth = 800;
+#endif
 	}
 	feheight = nsoption_int(window_height);
 	if (feheight <= 0) {
+#ifdef GEKKO
+		feheight = 480;
+#else
 		feheight = 600;
+#endif
 	}
+
+#ifdef GEKKO
+	/* Do not depend on static-library constructor order on Wii. */
+	fename = "sdl";
+#endif
 
 	if ((nsoption_charp(homepage_url) != NULL) && 
 	    (nsoption_charp(homepage_url)[0] != '\0')) {
@@ -585,8 +626,18 @@ static nserror set_defaults(struct nsoption_s *defaults)
 	};
 
 	/* Set defaults for absent option strings */
+#ifdef GEKKO
+	defaults[NSOPTION_enable_javascript].value.b = true;
+	nsoption_setnull_charp(ca_bundle,
+		strdup("sd:/apps/netsurf/cacert.pem"));
+	nsoption_setnull_charp(cookie_file,
+		strdup("sd:/apps/netsurf/Cookies"));
+	nsoption_setnull_charp(cookie_jar,
+		strdup("sd:/apps/netsurf/Cookies"));
+#else
 	nsoption_setnull_charp(cookie_file, strdup("~/.netsurf/Cookies"));
 	nsoption_setnull_charp(cookie_jar, strdup("~/.netsurf/Cookies"));
+#endif
 
 	if (nsoption_charp(cookie_file) == NULL ||
 	    nsoption_charp(cookie_jar) == NULL) {
@@ -847,6 +898,36 @@ fb_browser_window_move(fbtk_widget_t *widget, fbtk_callback_info *cbi)
 	return 0;
 }
 
+#if defined(GEKKO) && defined(WITH_PDF_EXPORT)
+static void
+fb_export_pdf(struct gui_window *gw)
+{
+	static const char output_path[] = "sd:/apps/netsurf/netsurf.pdf";
+	struct hlcache_handle *content;
+	struct print_settings *print_settings;
+
+	content = browser_window_get_content(gw->bw);
+	if (content == NULL) {
+		WII_LOG("PDF export skipped: no page content\n");
+		return;
+	}
+
+	haru_nsfont_set_scale((float)nsoption_int(export_scale) / 100);
+	print_settings = print_make_settings(PRINT_OPTIONS, output_path,
+			&haru_nsfont);
+	if (print_settings == NULL) {
+		WII_LOG("PDF export failed: no memory\n");
+		return;
+	}
+
+	if (print_basic_run(content, &pdf_printer, print_settings)) {
+		WII_LOG("PDF exported to %s\n", output_path);
+	} else {
+		WII_LOG("PDF export failed\n");
+	}
+}
+#endif
+
 
 static int
 fb_browser_window_input(fbtk_widget_t *widget, fbtk_callback_info *cbi)
@@ -975,6 +1056,16 @@ fb_browser_window_input(fbtk_widget_t *widget, fbtk_callback_info *cbi)
 		case NSFB_KEY_LCTRL:
 			modifier |= FBTK_MOD_LCTRL;
 			break;
+
+#if defined(GEKKO) && defined(WITH_PDF_EXPORT)
+		case NSFB_KEY_p:
+			if (modifier & FBTK_MOD_RCTRL ||
+					modifier & FBTK_MOD_LCTRL) {
+				fb_export_pdf(gw);
+				break;
+			}
+			fallthrough;
+#endif
 
 		case NSFB_KEY_y:
 		case NSFB_KEY_z:
@@ -1992,7 +2083,25 @@ gui_window_set_pointer(struct gui_window *g, gui_pointer_shape shape)
 static nserror
 gui_window_set_url(struct gui_window *g, nsurl *url)
 {
-	fbtk_set_text(g->url, nsurl_access(url));
+	const char *display_url = nsurl_access(url);
+
+#ifdef GEKKO
+	/* A colon in a file URL path is normally percent-encoded. Wii device
+	 * paths use it as the volume separator, so show sd:/ as users enter it. */
+	if (strncasecmp(display_url, "file:///sd%3A/", 14) == 0) {
+		char *wii_url = malloc(strlen(display_url) - 1);
+		if (wii_url != NULL) {
+			memcpy(wii_url, display_url, 10);
+			wii_url[10] = ':';
+			strcpy(wii_url + 11, display_url + 13);
+			fbtk_set_text(g->url, wii_url);
+			free(wii_url);
+			return NSERROR_OK;
+		}
+	}
+#endif
+
+	fbtk_set_text(g->url, display_url);
 	return NSERROR_OK;
 }
 
@@ -2198,12 +2307,30 @@ main(int argc, char** argv)
 		.layout = framebuffer_layout_table,
 	};
 
+#ifdef GEKKO
+	SYS_STDIO_Report(true);
+	WII_LOG("entry\n");
+	fatInitDefault();
+	WII_LOG("FAT initialised\n");
+	ret = wiisocket_async_init(wii_network_initialised, NULL);
+	if (ret < 0) {
+		fprintf(stderr, "Unable to start Wii networking (%d)\n", ret);
+	}
+	WII_LOG("network startup requested (%d)\n", ret);
+#endif
+
+#ifdef GEKKO
+	framebuffer_table.file = wii_get_file_table();
+#endif
+
         ret = netsurf_register(&framebuffer_table);
         if (ret != NSERROR_OK) {
 		die("NetSurf operation table failed registration");
         }
+	WII_LOG("frontend registered\n");
 
 	respaths = fb_init_resource_path(NETSURF_FB_RESPATH":"NETSURF_FB_FONTPATH);
+	WII_LOG("resource paths initialised\n");
 
 	/* initialise logging. Not fatal if it fails but not much we
 	 * can do about it either.
@@ -2215,6 +2342,7 @@ main(int argc, char** argv)
 	if (ret != NSERROR_OK) {
 		die("Options failed to initialise");
 	}
+	WII_LOG("options initialised\n");
 	options = filepath_find(respaths, "Choices");
 	nsoption_read(options, nsoptions);
 	free(options);
@@ -2233,6 +2361,7 @@ main(int argc, char** argv)
 	if (ret != NSERROR_OK) {
 		die("NetSurf failed to initialise");
 	}
+	WII_LOG("core initialised\n");
 
 	/* Override, since we have no support for non-core SELECT menu */
 	nsoption_set_bool(core_select_menu, true);
@@ -2243,6 +2372,8 @@ main(int argc, char** argv)
 	nsfb = framebuffer_initialise(fename, fewidth, feheight, febpp);
 	if (nsfb == NULL)
 		die("Unable to initialise framebuffer");
+	WII_LOG("framebuffer initialised (%s %dx%dx%d)\n",
+		fename, fewidth, feheight, febpp);
 
 	framebuffer_set_cursor(&pointer_image);
 
@@ -2250,6 +2381,7 @@ main(int argc, char** argv)
 		die("Unable to initialise the font system");
 
 	fbtk = fbtk_init(nsfb);
+	WII_LOG("toolkit initialised\n");
 
 	fbtk_enable_oskb(fbtk);
 
@@ -2260,6 +2392,7 @@ main(int argc, char** argv)
 	NSLOG(netsurf, INFO, "calling browser_window_create");
 
 	ret = nsurl_create(feurl, &url);
+	WII_LOG("opening %s\n", feurl);
 	if (ret == NSERROR_OK) {
 		ret = browser_window_create(BW_CREATE_HISTORY,
 					      url,

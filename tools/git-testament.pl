@@ -100,8 +100,8 @@ my %userinfo; # The information about the current user
 
 {
    my @pwent = getpwuid($<);
-   $userinfo{USERNAME} = $pwent[0];
-   my $gecos = $pwent[6];
+   $userinfo{USERNAME} = $ENV{NETSURF_BUILD_USER} // $pwent[0];
+   my $gecos = $ENV{NETSURF_BUILD_NAME} // $pwent[6];
    $gecos =~ s/,.+//g;
    $gecos =~ s/"/'/g;
    $gecos =~ s/\\/\\\\/g;
@@ -122,6 +122,7 @@ $testament .= "#define USERNAME \"$userinfo{USERNAME}\"\n";
 $testament .= "#define GECOS \"$userinfo{GECOS}\"\n";
 
 my $qroot = $root;
+$qroot = $ENV{NETSURF_BUILD_ROOT} if defined($ENV{NETSURF_BUILD_ROOT});
 $qroot =~ s/"/\\"/g;
 
 my $hostname = $ENV{HOSTNAME};

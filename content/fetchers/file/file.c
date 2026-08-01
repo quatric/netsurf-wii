@@ -39,7 +39,7 @@
 #include <time.h>
 #include <stdio.h>
 #include <stdarg.h>
-#ifdef HAVE_MMAP
+#if defined(HAVE_MMAP) && !defined(GEKKO)
 #include <sys/mman.h>
 #endif
 #include <libwapcaplet/libwapcaplet.h>
@@ -282,7 +282,7 @@ fetch_file_process_error_aborted:
 static void fetch_file_process_plain(struct fetch_file_context *ctx,
 				     struct stat *fdstat)
 {
-#ifdef HAVE_MMAP
+#if defined(HAVE_MMAP) && !defined(GEKKO)
 	fetch_msg msg;
 	char *buf = NULL;
 	size_t buf_size;

@@ -457,11 +457,19 @@ char *strchrnul (const char *s, int c_in)
 #include "utils/utsname.h"
 
 int uname(struct utsname *buf) {
+#ifdef GEKKO
+	strcpy(buf->sysname,"Wii");
+	strcpy(buf->nodename,"wii");
+	strcpy(buf->release,"libogc");
+	strcpy(buf->version,"homebrew");
+	strcpy(buf->machine,"powerpc-gekko");
+#else
 	strcpy(buf->sysname,"windows");
 	strcpy(buf->nodename,"nodename");
 	strcpy(buf->release,"release");
 	strcpy(buf->version,"version");
 	strcpy(buf->machine,"pc");
+#endif
 
 	return 0;
 }

@@ -1,0 +1,88 @@
+name: Wii Build
+
+on:
+  push:
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: wii-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build:
+    name: Build NetSurf Wii
+    runs-on: ubuntu-24.04
+    container: devkitpro/devkitppc:20260503
+    timeout-minutes: 90
+    env:
+      DEVKITPRO: /opt/devkitpro
+      DEVKITPPC: /opt/devkitpro/devkitPPC
+
+    steps:
+      - name: Check out source
+        uses: actions/checkout@v6
+        with:
+          fetch-depth: 1
+
+      - name: Install host build dependencies
+        run: |
+          apt-get update
+          apt-get install -y --no-install-recommends \
+            bison flex fonts-dejavu-core gperf libpng-dev perl
+          rm -rf /var/lib/apt/lists/*
+
+      - name: Verify pinned Wii toolchain
+        run: |
+          test -x "$DEVKITPPC/bin/powerpc-eabi-gcc"
+          dkp-pacman -Q \
+            wii-sdl ppc-zlib ppc-libpng ppc-libjpeg-turbo \
+            ppc-libwebp ppc-freetype
+
+      - name: Prepare CI fonts
+        run: |
+          mkdir -p "$GITHUB_WORKSPACE/.ci-fonts"
+          cp /usr/share/fonts/truetype/dejavu/DejaVuSans.ttf \
+            "$GITHUB_WORKSPACE/.ci-fonts/Regular.ttf"
+          cp /usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf \
+            "$GITHUB_WORKSPACE/.ci-fonts/Bold.ttf"
+
+      - name: Bootstrap Wii dependencies
+        run: ./wii/bootstrap-browser-deps.sh
+
+      - name: Build Wii package
+        env:
+          RODIN_REGULAR_SOURCE: ${{ github.workspace }}/.ci-fonts/Regular.ttf
+          RODIN_BOLD_SOURCE: ${{ github.workspace }}/.ci-fonts/Bold.ttf
+        run: ./wii/build-browser.sh -j"$(nproc)"
+
+      - name: Verify package
+        run: |
+          test -s wii/dist/apps/netsurf/boot.dol
+          grep -Fq '<coder>quatric</coder>' wii/dist/apps/netsurf/meta.xml
+          "$DEVKITPPC/bin/powerpc-eabi-nm" nsfb | grep -Fq WUPC_Init
+          "$DEVKITPPC/bin/powerpc-eabi-nm" nsfb | grep -Fq WPAD_IR
+          "$DEVKITPPC/bin/powerpc-eabi-nm" nsfb | grep -Fq WPAD_ScanPads
+          if strings wii/dist/apps/netsurf/boot.dol | \
+              grep -Eiq '/home/runner|/github/workspace'; then
+            echo "Unexpected build provenance in boot.dol" >&2
+            exit 1
+          fi
+
+      - name: Archive package
+        run: |
+          tar -C wii/dist/apps -czf netsurf-wii-ci.tar.gz netsurf
+          sha256sum netsurf-wii-ci.tar.gz > netsurf-wii-ci.tar.gz.sha256
+
+      - name: Upload package
+        uses: actions/upload-artifact@v7
+        with:
+          name: netsurf-wii-${{ github.sha }}
+          path: |
+            netsurf-wii-ci.tar.gz
+            netsurf-wii-ci.tar.gz.sha256
+          if-no-files-found: error
+          retention-days: 14

@@ -1,0 +1,298 @@
+diff --git a/src/plot.h b/src/plot.h
+index db60ea9..d6968e1 100644
+--- a/src/plot.h
++++ b/src/plot.h
+@@ -24,7 +24,11 @@
+  * \note This utterly ignores PDP endianess
+  */
+ #undef NSFB_BE_BYTE_ORDER
+-#if defined(_WIN32)
++#if defined(GEKKO)
++    /* devkitPPC/newlib provides machine/endian.h, not endian.h. */
++    #include <machine/endian.h>
++    #define NSFB_BE_BYTE_ORDER
++#elif defined(_WIN32)
+     /* windows does not have endian.h but uses these macros */
+     #if __BYTE_ORDER__ == __ORDER_BIG_ENDIAN__
+         #define NSFB_BE_BYTE_ORDER
+diff --git a/src/plot/32bpp-xrgb8888.c b/src/plot/32bpp-xrgb8888.c
+index 28e6673..938c998 100644
+--- a/src/plot/32bpp-xrgb8888.c
++++ b/src/plot/32bpp-xrgb8888.c
+@@ -40,7 +40,8 @@ static inline uint32_t *get_xy_loc(nsfb_t *nsfb, int x, int y)
+  */
+ static inline nsfb_colour_t pixel_to_colour(UNUSED nsfb_t *nsfb, uint32_t pixel)
+ {
+-        return (pixel >> 8) & ~0xFF000000U;
++	return (((pixel >> 16) | (pixel << 16)) & 0x00FF00FFU) |
++		(pixel & 0x0000FF00U);
+ }
+ 
+ /**
+@@ -52,7 +53,8 @@ static inline nsfb_colour_t pixel_to_colour(UNUSED nsfb_t *nsfb, uint32_t pixel)
+  */
+ static inline uint32_t colour_to_pixel(UNUSED nsfb_t *nsfb, nsfb_colour_t c)
+ {
+-        return (c << 8);
++	return (((c >> 16) | (c << 16)) & 0x00FF00FFU) |
++		(c & 0x0000FF00U);
+ }
+ 
+ #else
+diff --git a/src/surface/sdl.c b/src/surface/sdl.c
+index 8a73581..c507cf4 100644
+--- a/src/surface/sdl.c
++++ b/src/surface/sdl.c
+@@ -10,6 +10,12 @@
+ #include <stdlib.h>
+ #include <SDL/SDL.h>
+ 
++#ifdef GEKKO
++#include <gccore.h>
++#include <wiiuse/wpad.h>
++#include <wupc/wupc.h>
++#endif
++
+ #include "libnsfb.h"
+ #include "libnsfb_event.h"
+ #include "libnsfb_plot.h"
+@@ -21,6 +27,161 @@
+ #include "plot.h"
+ #include "cursor.h"
+ 
++#ifdef GEKKO
++static SDL_Joystick *wii_pointer_joystick;
++static u32 wii_previous_buttons;
++static int wii_previous_pointer_x = -1;
++static int wii_previous_pointer_y = -1;
++
++static u32 wii_canonical_buttons(u32 pressed)
++{
++    if (pressed & (WPAD_CLASSIC_BUTTON_ZR | WPAD_CLASSIC_BUTTON_PLUS))
++        pressed |= WPAD_BUTTON_PLUS;
++    if (pressed & (WPAD_CLASSIC_BUTTON_ZL | WPAD_CLASSIC_BUTTON_MINUS))
++        pressed |= WPAD_BUTTON_MINUS;
++    if (pressed & WPAD_CLASSIC_BUTTON_A)
++        pressed |= WPAD_BUTTON_A;
++    if (pressed & WPAD_CLASSIC_BUTTON_B)
++        pressed |= WPAD_BUTTON_B;
++    if (pressed & WPAD_CLASSIC_BUTTON_X)
++        pressed |= WPAD_BUTTON_2;
++    if (pressed & WPAD_CLASSIC_BUTTON_Y)
++        pressed |= WPAD_BUTTON_1;
++    if (pressed & WPAD_CLASSIC_BUTTON_HOME)
++        pressed |= WPAD_BUTTON_HOME;
++    if (pressed & WPAD_CLASSIC_BUTTON_UP)
++        pressed |= WPAD_BUTTON_UP;
++    if (pressed & WPAD_CLASSIC_BUTTON_DOWN)
++        pressed |= WPAD_BUTTON_DOWN;
++    if (pressed & WPAD_CLASSIC_BUTTON_LEFT)
++        pressed |= WPAD_BUTTON_LEFT;
++    if (pressed & WPAD_CLASSIC_BUTTON_RIGHT)
++        pressed |= WPAD_BUTTON_RIGHT;
++    return pressed;
++}
++
++static u32 wii_controller_buttons(void)
++{
++    u32 pressed = 0;
++    u32 gcpressed = 0;
++    unsigned int channel;
++
++    WUPC_UpdateButtonStats();
++    for (channel = 0; channel < 4; channel++)
++        pressed |= WUPC_ButtonsHeld(channel);
++    pressed = wii_canonical_buttons(pressed);
++
++    if (pressed != 0)
++        return pressed;
++
++    for (channel = 0; channel < 4; channel++)
++        pressed |= WPAD_ButtonsHeld(channel);
++    pressed = wii_canonical_buttons(pressed);
++
++    if (pressed != 0)
++        return pressed;
++
++    if (PAD_ScanPads() > PAD_ERR_NONE) {
++        for (channel = 0; channel < 4; channel++)
++            gcpressed |= PAD_ButtonsHeld(channel);
++        if (gcpressed & PAD_TRIGGER_R)
++            pressed |= WPAD_BUTTON_PLUS;
++        if (gcpressed & PAD_TRIGGER_L)
++            pressed |= WPAD_BUTTON_MINUS;
++        if (gcpressed & PAD_BUTTON_A)
++            pressed |= WPAD_BUTTON_A;
++        if (gcpressed & PAD_BUTTON_B)
++            pressed |= WPAD_BUTTON_B;
++        if (gcpressed & PAD_BUTTON_X)
++            pressed |= WPAD_BUTTON_2;
++        if (gcpressed & PAD_BUTTON_Y)
++            pressed |= WPAD_BUTTON_1;
++        if (gcpressed & PAD_BUTTON_MENU)
++            pressed |= WPAD_BUTTON_HOME;
++        if (gcpressed & PAD_BUTTON_UP)
++            pressed |= WPAD_BUTTON_UP;
++        if (gcpressed & PAD_BUTTON_DOWN)
++            pressed |= WPAD_BUTTON_DOWN;
++        if (gcpressed & PAD_BUTTON_LEFT)
++            pressed |= WPAD_BUTTON_LEFT;
++        if (gcpressed & PAD_BUTTON_RIGHT)
++            pressed |= WPAD_BUTTON_RIGHT;
++    }
++    return pressed;
++}
++
++static bool wii_controller_event(nsfb_event_t *event)
++{
++    static const u32 masks[] = {
++        WPAD_BUTTON_A, WPAD_BUTTON_B,
++        WPAD_BUTTON_UP, WPAD_BUTTON_DOWN,
++        WPAD_BUTTON_LEFT, WPAD_BUTTON_RIGHT,
++        WPAD_BUTTON_PLUS, WPAD_BUTTON_MINUS,
++        WPAD_BUTTON_1, WPAD_BUTTON_2, WPAD_BUTTON_HOME
++    };
++    static const enum nsfb_key_code_e keys[] = {
++        NSFB_KEY_MOUSE_1, NSFB_KEY_MOUSE_3,
++        NSFB_KEY_UP, NSFB_KEY_DOWN,
++        NSFB_KEY_LEFT, NSFB_KEY_RIGHT,
++        NSFB_KEY_PLUS, NSFB_KEY_MINUS,
++        NSFB_KEY_PAGEUP, NSFB_KEY_PAGEDOWN, NSFB_KEY_ESCAPE
++    };
++    u32 current = wii_controller_buttons();
++    u32 changed = current ^ wii_previous_buttons;
++    unsigned int index;
++
++    for (index = 0; index < sizeof(masks) / sizeof(masks[0]); index++) {
++        if ((changed & masks[index]) != 0) {
++            event->type = (current & masks[index]) != 0 ?
++                    NSFB_EVENT_KEY_DOWN : NSFB_EVENT_KEY_UP;
++            event->value.keycode = keys[index];
++            wii_previous_buttons ^= masks[index];
++            return true;
++        }
++    }
++    return false;
++}
++
++static bool wii_pointer_event(nsfb_t *nsfb, nsfb_event_t *event)
++{
++    unsigned int channel;
++
++    for (channel = 0; channel < 4; channel++) {
++        ir_t ir;
++        int x;
++        int y;
++
++        WPAD_IR(channel, &ir);
++        if (!ir.valid)
++            continue;
++
++        x = (int)ir.x;
++        y = (int)ir.y;
++        if (x < 0)
++            x = 0;
++        else if (x >= nsfb->width)
++            x = nsfb->width - 1;
++        if (y < 0)
++            y = 0;
++        else if (y >= nsfb->height)
++            y = nsfb->height - 1;
++
++        if (x == wii_previous_pointer_x && y == wii_previous_pointer_y)
++            return false;
++
++        wii_previous_pointer_x = x;
++        wii_previous_pointer_y = y;
++        event->type = NSFB_EVENT_MOVE_ABSOLUTE;
++        event->value.vector.x = x;
++        event->value.vector.y = y;
++        event->value.vector.z = 0;
++        return true;
++    }
++
++    return false;
++}
++#endif
++
+ enum nsfb_key_code_e sdl_nsfb_map[] = {
+     NSFB_KEY_UNKNOWN,
+     NSFB_KEY_UNKNOWN,
+@@ -458,8 +619,29 @@ static int sdl_initialise(nsfb_t *nsfb)
+         return -1;
+ 
+     /* initialise SDL library */
+-    if (SDL_Init(SDL_INIT_TIMER | SDL_INIT_VIDEO) < 0 ) {
++#ifdef GEKKO
++    PAD_Init();
++    WUPC_Init();
++#endif
++    if (SDL_Init(SDL_INIT_TIMER | SDL_INIT_VIDEO
++#ifdef GEKKO
++                 | SDL_INIT_JOYSTICK
++#endif
++                 ) < 0 ) {
+         fprintf(stderr, "Unable to init SDL: %s\n", SDL_GetError());
++#ifdef GEKKO
++        WUPC_Shutdown();
++#endif
+         return -1;
+     }
++#ifdef GEKKO
++    {
++        unsigned int channel;
++
++        for (channel = 0; channel < 4; channel++) {
++            WPAD_SetDataFormat(channel, WPAD_FMT_BTNS_ACC_IR);
++            WPAD_SetVRes(channel, nsfb->width, nsfb->height);
++        }
++    }
++#endif
+ 
+@@ -512,12 +694,26 @@ static int sdl_initialise(nsfb_t *nsfb)
+     SDL_ShowCursor(SDL_DISABLE);
+     SDL_EnableKeyRepeat(300, 50);
+ 
++#ifdef GEKKO
++    /* Wii SDL turns Remote IR and A/B into mouse events, but its event pump
++     * only refreshes WPAD state while joystick zero is open and polled. */
++    SDL_JoystickEventState(SDL_IGNORE);
++    wii_pointer_joystick = SDL_JoystickOpen(0);
++#endif
++
+     return 0;
+ }
+ 
+ static int sdl_finalise(nsfb_t *nsfb)
+ {
+     nsfb=nsfb;
++#ifdef GEKKO
++    if (wii_pointer_joystick != NULL) {
++        SDL_JoystickClose(wii_pointer_joystick);
++        wii_pointer_joystick = NULL;
++    }
++    WUPC_Shutdown();
++#endif
+     SDL_Quit();
+     return 0;
+ }
+@@ -545,6 +741,19 @@ static bool sdl_input(nsfb_t *nsfb, nsfb_event_t *event, int timeout)
+ 
+     nsfb = nsfb; /* unused */
+ 
++#ifdef GEKKO
++    if (wii_pointer_joystick != NULL) {
++        SDL_JoystickUpdate();
++    }
++    WPAD_ScanPads();
++    if (wii_pointer_event(nsfb, event)) {
++        return true;
++    }
++    if (wii_controller_event(event)) {
++        return true;
++    }
++#endif
++
+     if (timeout == 0) {
+         got_event = SDL_PollEvent(&sdlevent);
+     } else {

@@ -37,32 +37,31 @@
 #include <hpdf.h>
 
 #include "utils/nsoption.h"
-#include "desktop/save_pdf/font_haru.h"
-#include "desktop/font.h"
+#include "desktop/font_haru.h"
 #include "utils/log.h"
 
 
 static bool haru_nsfont_init(HPDF_Doc *pdf, HPDF_Page *page,
 		const char *string, char **string_nt, int length);
 
-static bool haru_nsfont_width(const plot_font_style_t *fstyle,
+static nserror haru_nsfont_width(const plot_font_style_t *fstyle,
 		const char *string, size_t length,
 		int *width);
 
-static bool haru_nsfont_position_in_string(const plot_font_style_t *fstyle,
+static nserror haru_nsfont_position_in_string(const plot_font_style_t *fstyle,
 		const char *string, size_t length,
 		int x, size_t *char_offset, int *actual_x);
 
-static bool haru_nsfont_split(const plot_font_style_t *fstyle,
+static nserror haru_nsfont_split(const plot_font_style_t *fstyle,
 		const char *string, size_t length,
 	 	int x, size_t *char_offset, int *actual_x);
 
 static float pdf_text_scale = DEFAULT_EXPORT_SCALE;
 
-const struct font_functions haru_nsfont = {
-	haru_nsfont_width,
- 	haru_nsfont_position_in_string,
- 	haru_nsfont_split
+const struct gui_layout_table haru_nsfont = {
+	.width = haru_nsfont_width,
+	.position = haru_nsfont_position_in_string,
+	.split = haru_nsfont_split,
 };
 
 /**
@@ -119,7 +118,7 @@ static bool haru_nsfont_init(HPDF_Doc *pdf, HPDF_Page *page,
  * \param  width   updated to width of string[0..length]
  * \return  true on success, false on error and error reported
  */
-bool haru_nsfont_width(const plot_font_style_t *fstyle,
+static nserror haru_nsfont_width(const plot_font_style_t *fstyle,
 		const char *string, size_t length,
 	 	int *width)
 {
@@ -131,15 +130,15 @@ bool haru_nsfont_width(const plot_font_style_t *fstyle,
 	*width = 0;
 
 	if (length == 0)
-		return true;
+		return NSERROR_OK;
 
 	if (!haru_nsfont_init(&pdf, &page, string, &string_nt, length))
-		return false;
+		return NSERROR_INVALID;
 
 	if (!haru_nsfont_apply_style(fstyle, pdf, page, NULL, NULL)) {
 		free(string_nt);
 		HPDF_Free(pdf);
-		return false;
+		return NSERROR_INVALID;
 	}
 
 	width_real = HPDF_Page_TextWidth(page, string_nt);
@@ -153,7 +152,7 @@ bool haru_nsfont_width(const plot_font_style_t *fstyle,
 	free(string_nt);
 	HPDF_Free(pdf);
 
-	return true;
+	return NSERROR_OK;
 }
 
 
@@ -169,7 +168,7 @@ bool haru_nsfont_width(const plot_font_style_t *fstyle,
  * \return  true on success, false on error and error reported
  */
 
-bool haru_nsfont_position_in_string(const plot_font_style_t *fstyle,
+static nserror haru_nsfont_position_in_string(const plot_font_style_t *fstyle,
 		const char *string, size_t length,
 		int x, size_t *char_offset, int *actual_x)
 {
@@ -180,13 +179,13 @@ bool haru_nsfont_position_in_string(const plot_font_style_t *fstyle,
 	HPDF_REAL real_width;
 
 	if (!haru_nsfont_init(&pdf, &page, string, &string_nt, length))
-		return false;
+		return NSERROR_INVALID;
 
 	if (HPDF_Page_SetWidth(page, x) != HPDF_OK
 			|| !haru_nsfont_apply_style(fstyle, pdf, page, NULL, NULL)) {
 		free(string_nt);
 		HPDF_Free(pdf);
-		return false;
+		return NSERROR_INVALID;
 	}
 
 
@@ -215,7 +214,7 @@ bool haru_nsfont_position_in_string(const plot_font_style_t *fstyle,
 	free(string_nt);
 	HPDF_Free(pdf);
 
-	return true;
+	return NSERROR_OK;
 }
 
 /**
@@ -230,7 +229,7 @@ bool haru_nsfont_position_in_string(const plot_font_style_t *fstyle,
  * \return  true on success, false on error and error reported
  */
 
-bool haru_nsfont_split(const plot_font_style_t *fstyle,
+static nserror haru_nsfont_split(const plot_font_style_t *fstyle,
 		const char *string, size_t length,
 		int x, size_t *char_offset, int *actual_x)
 {
@@ -242,13 +241,13 @@ bool haru_nsfont_split(const plot_font_style_t *fstyle,
 
 
 	if (!haru_nsfont_init(&pdf, &page, string, &string_nt, length))
-		return false;
+		return NSERROR_INVALID;
 
 	if (HPDF_Page_SetWidth(page, x) != HPDF_OK
 		    || !haru_nsfont_apply_style(fstyle, pdf, page, NULL, NULL)) {
 		free(string_nt);
 		HPDF_Free(pdf);
-		return false;
+		return NSERROR_INVALID;
 	}
 
 	offset = HPDF_Page_MeasureText(page, string_nt, x,
@@ -270,7 +269,7 @@ bool haru_nsfont_split(const plot_font_style_t *fstyle,
 	free(string_nt);
 	HPDF_Free(pdf);
 
-	return true;
+	return NSERROR_OK;
 }
 
 /**
