@@ -407,6 +407,13 @@ FT_Glyph fb_getglyph(const plot_font_style_t *fstyle, uint32_t ucs4)
         FT_Error error;
         fb_faceid_t *fb_face; 
 
+        /* Render a non-breaking space with the ordinary space glyph. The
+         * original codepoint remains in the layout text, so it still cannot
+         * be used as a line-breaking opportunity. */
+        if (ucs4 == 0x00a0) {
+                ucs4 = 0x20;
+        }
+
         fb_fill_scalar(fstyle, &srec);
 
         fb_face = (fb_faceid_t *)srec.face_id;
@@ -470,8 +477,10 @@ fb_font_position(const plot_font_style_t *fstyle,
                 ucs4 = utf8_to_ucs4(string + nxtchr, length - nxtchr);
 
                 glyph = fb_getglyph(fstyle, ucs4);
-                if (glyph == NULL)
+                if (glyph == NULL) {
+                        nxtchr = utf8_next(string, length, nxtchr);
                         continue;
+                }
 
                 *actual_x += glyph->advance.x >> 16;
                 if (*actual_x > x)
@@ -528,8 +537,10 @@ fb_font_split(const plot_font_style_t *fstyle,
                 ucs4 = utf8_to_ucs4(string + nxtchr, length - nxtchr);
 
                 glyph = fb_getglyph(fstyle, ucs4);
-                if (glyph == NULL)
+                if (glyph == NULL) {
+                        nxtchr = utf8_next(string, length, nxtchr);
                         continue;
+                }
 
                 if (ucs4 == 0x20) {
                         last_space_x = *actual_x;

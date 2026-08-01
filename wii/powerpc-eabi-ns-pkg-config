@@ -1,0 +1,12 @@
+#!/bin/sh
+set -eu
+
+SCRIPT_DIR=$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)
+NS_PREFIX="$SCRIPT_DIR/.deps/netsurf-workspace/inst-powerpc-eabi"
+
+export PKG_CONFIG_DIR=
+export PKG_CONFIG_PATH=
+export PKG_CONFIG_SYSROOT_DIR=
+export PKG_CONFIG_LIBDIR="$SCRIPT_DIR/.deps/optional/prefix/lib/pkgconfig:$NS_PREFIX/lib/pkgconfig:$SCRIPT_DIR/.deps/network/lib/pkgconfig:/opt/devkitpro/portlibs/wii/lib/pkgconfig:/opt/devkitpro/portlibs/ppc/lib/pkgconfig"
+
+exec pkg-config --static "$@"
