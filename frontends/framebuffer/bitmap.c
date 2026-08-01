@@ -39,6 +39,13 @@
 #include "framebuffer/framebuffer.h"
 #include "framebuffer/bitmap.h"
 
+#ifdef GEKKO
+/* A decoded image is a 32-bit RAM surface.  Keep one hostile or oversized
+ * image from consuming the Wii's remaining MEM2 allocation in one request. */
+#define WII_MAX_BITMAP_BYTES (4U * 1024U * 1024U)
+#define WII_MAX_BITMAP_DIMENSION 2048
+#endif
+
 /**
  * Create a bitmap.
  *
@@ -50,6 +57,17 @@
 static void *bitmap_create(int width, int height, enum gui_bitmap_flags flags)
 {
 	nsfb_t *bm;
+
+#ifdef GEKKO
+	if (width <= 0 || height <= 0 ||
+			width > WII_MAX_BITMAP_DIMENSION ||
+			height > WII_MAX_BITMAP_DIMENSION ||
+			(size_t)width > WII_MAX_BITMAP_BYTES /
+			((size_t)height * sizeof(nsfb_colour_t))) {
+		NSLOG(netsurf, INFO, "Rejecting %dx%d bitmap on Wii", width, height);
+		return NULL;
+	}
+#endif
 
 	bm = nsfb_new(NSFB_SURFACE_RAM);
 	if (bm == NULL) {

@@ -4,7 +4,7 @@ override NETSURF_USE_OPENSSL := NO
 override NETSURF_USE_LIBICONV_PLUG := NO
 override NETSURF_USE_UTF8PROC := NO
 override NETSURF_USE_DUKTAPE := YES
-override NETSURF_USE_JPEGXL := YES
+override NETSURF_USE_JPEGXL := NO
 override NETSURF_USE_WEBP := YES
 override NETSURF_USE_PNG := YES
 override NETSURF_USE_JPEG := YES
@@ -31,6 +31,3 @@ override NETSURF_FB_FONTPATH := sd:/apps/netsurf/fonts
 
 override NETSURF_HOMEPAGE := about:welcome
 override NETSURF_LOG_LEVEL := WARNING
-
-# Wii has 64 MiB MEM2 plus 24 MiB MEM1 shared with graphics and IOS buffers.
-override NETSURF_CACHE_MEMORY_CACHE_SIZE := 12582912

@@ -30,7 +30,6 @@ for required in \
 	"$NETWORK_PREFIX/lib/libcurl.a" \
 	"$ICONV_PREFIX/lib/libiconv.a" \
 	"$OPTIONAL_PREFIX/lib/libhpdf.a" \
-	"$OPTIONAL_PREFIX/lib/libjxl.a" \
 	"$INPUT_PREFIX/lib/libwupc.a" \
 	"$INPUT_PREFIX/include/wupc/wupc.h" \
 	"$HOST_TOOL_PREFIX/bin/nsgenbind" \
