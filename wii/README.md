@@ -15,6 +15,34 @@ CA bundle, Messages catalogue, CSS, and built-in pages must remain beside
 `file:///sd:/apps/netsurf/js-smoke.html` for a small JavaScript/DOM diagnostic
 page.
 
+## Controls
+
+Connect a standard USB HID keyboard or mouse to either Wii USB port (a powered
+hub is recommended when the SD/USB storage device is also in use). Devices are
+hot-plugged, so they may be connected before or after NetSurf starts.
+
+- USB keyboard: text entry, browser shortcuts, arrows, Home/End, Page Up/Down,
+  function keys, and modifier keys work normally. Ctrl+P writes the current
+  page to `sd:/apps/netsurf/netsurf.pdf`.
+- USB mouse: relative motion moves the browser pointer; left, middle, and
+  right buttons map to the corresponding browser buttons; the wheel scrolls.
+- Wii Remote: aim with IR; A and B are left and right click. Without IR, use
+  the D-pad to move the pointer. Home exits.
+
+USB HID support targets boot-protocol keyboards and mice. It is experimental;
+there is no compatibility guarantee or end-user support for particular USB
+devices.
+
+### Wii Remote troubleshooting
+
+The Wii Remote cursor requires a visible Sensor Bar. Aim the Remote at the
+screen, keep the bar within its field of view, and remain within the usual
+Bluetooth range. If the cursor disappears, point the Remote at the Sensor Bar
+again; the D-pad remains available as a fallback while IR is unavailable.
+D-pad movement is intentionally slower than IR and is best used only to
+recover the pointer or make small adjustments. Slow page loading is separate
+from pointer movement and is expected on complex modern sites.
+
 When testing in Dolphin, install the complete `apps/netsurf` directory into
 Dolphin's emulated SD card. Opening `boot.dol` directly does not make sibling
 host files visible as `sd:/apps/netsurf`, so the browser will start without
@@ -86,6 +114,9 @@ NetSurf fetcher -> libcurl -> libogc BSD sockets -> Wii network interface
 ## Current limitations
 
 - This build has not yet been tested on physical Wii hardware.
+- USB keyboard and mouse input uses libogc's boot-protocol HID drivers. It is
+  intended for ordinary wired devices; wireless receivers and composite HID
+  devices need hardware testing and are not supported on request.
 - Wii Remote IR is polled directly on all four channels and emitted as absolute
   pointer movement; A and B map to the left and right mouse buttons. SDL's Wii
   joystick is also polled to keep its controller state current.
@@ -107,3 +138,11 @@ NetSurf fetcher -> libcurl -> libogc BSD sockets -> Wii network interface
 
 The small `libnsfb` patch adds devkitPPC/newlib endian detection and Wii input
 polling. It is kept separate so it can be proposed upstream.
+
+## Support
+
+This is experimental hobby software. No end-user support or device-compatibility
+guarantee is provided. Project correspondence: quatric
+<quatricsoftware@gmail.com>.
+
+Copyright (c) 2026 quatric
