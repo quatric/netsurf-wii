@@ -58,7 +58,7 @@ ifeq ($(NETSURF_WII),YES)
   LDFLAGS += -lSDLmain -lSDL -laesnd -lwiiuse -lwupc -lbte -lwiikeyboard \
 	-lfat -lopengx -logc -lm
   LDFLAGS += -Wl,--wrap,wiiuse_accept -Wl,--wrap,wiiuse_connect
-  LDFLAGS += -liconv -llcms2
+  LDFLAGS += -liconv
 else
   LDFLAGS += -Wl,--whole-archive
   $(eval $(call pkg_config_find_and_add,libnsfb,libnsfb))
