@@ -627,7 +627,21 @@ static nserror set_defaults(struct nsoption_s *defaults)
 
 	/* Set defaults for absent option strings */
 #ifdef GEKKO
-	defaults[NSOPTION_enable_javascript].value.b = true;
+	/* Leave enough MEM2 for the framebuffer, page DOM, and image decoder.
+	 * Choices can still opt back into individual features on real hardware. */
+	defaults[NSOPTION_memory_cache_size].value.i = 6 * 1024 * 1024;
+	defaults[NSOPTION_disc_cache_size].value.u = 16 * 1024 * 1024;
+	defaults[NSOPTION_enable_javascript].value.b = false;
+	defaults[NSOPTION_script_timeout].value.i = 3;
+	defaults[NSOPTION_block_advertisements].value.b = true;
+	defaults[NSOPTION_do_not_track].value.b = true;
+	defaults[NSOPTION_background_images].value.b = false;
+	defaults[NSOPTION_animate_images].value.b = false;
+	defaults[NSOPTION_incremental_reflow].value.b = false;
+	defaults[NSOPTION_max_fetchers].value.i = 4;
+	defaults[NSOPTION_max_fetchers_per_host].value.i = 2;
+	defaults[NSOPTION_max_cached_fetch_handles].value.i = 1;
+	defaults[NSOPTION_fb_font_cachesize].value.i = 512;
 	nsoption_setnull_charp(ca_bundle,
 		strdup("sd:/apps/netsurf/cacert.pem"));
 	nsoption_setnull_charp(cookie_file,

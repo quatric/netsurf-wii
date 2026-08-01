@@ -69,8 +69,8 @@ cd /path/to/netsurf-wii
 
 `build-browser.sh` uses cross-built NetSurf support libraries under
 `wii/.deps/netsurf-workspace/inst-powerpc-eabi` and GNU libiconv under
-`wii/.deps/iconv`. WebP comes from devkitPro, while JPEG XL 0.11.2 and
-libharu 2.4.6 are cross-built under `wii/.deps/optional/prefix`.
+`wii/.deps/iconv`. WebP comes from devkitPro, while libharu 2.4.6 is
+cross-built under `wii/.deps/optional/prefix`.
 The pinned FIX94 libwupc source is adapted to current libogc and installed
 under `wii/.deps/input/prefix` by `bootstrap-input.sh`.
 `bootstrap-browser-deps.sh` creates the local prefixes. They are intentionally
@@ -114,6 +114,14 @@ NetSurf fetcher -> libcurl -> libogc BSD sockets -> Wii network interface
 ## Current limitations
 
 - This build has not yet been tested on physical Wii hardware.
+- The Wii low-memory profile reserves memory for rendering: the in-memory cache
+  is capped at 6 MiB, disk cache at 16 MiB, font cache at 512 KiB, and no
+  decoded bitmap may exceed 4 MiB or 2048 pixels on either side. Oversized
+  images fail to load instead of exhausting MEM2.
+- JavaScript, background images, and image animation are disabled by default.
+  The browser also limits itself to four active fetches (two per host) and
+  blocks advertisements by default. Users may override these defaults in
+  `sd:/apps/netsurf/Choices`, but doing so can reduce stability.
 - USB keyboard and mouse input uses libogc's boot-protocol HID drivers. It is
   intended for ordinary wired devices; wireless receivers and composite HID
   devices need hardware testing and are not supported on request.
@@ -124,12 +132,13 @@ NetSurf fetcher -> libcurl -> libogc BSD sockets -> Wii network interface
   WPAD. GlowWii-style four-channel aggregation gives them precedence over
   GameCube pads. A/B click, the D-pad sends arrows, Plus/Minus send `+`/`-`,
   X/Y send Page Down/Page Up, and Home sends Escape.
-- WebP and JPEG XL image decoding are enabled. PDF export uses libharu and a
-  fixed output path; a Wii-native filename picker has not been implemented.
-- JavaScript is enabled by default through NetSurf's bundled Duktape engine;
-  `js-smoke.html` provides a target-side JavaScript/DOM test. Modern sites can
-  still exceed the Wii's memory or depend on browser APIs NetSurf does not
-  implement.
+- WebP image decoding is enabled; JPEG XL is excluded to keep the browser and
+  its dependency set smaller. PDF export uses libharu and a fixed output path;
+  a Wii-native filename picker has not been implemented.
+- JavaScript remains available through the bundled Duktape engine when enabled
+  in `Choices`; `js-smoke.html` is a target-side JavaScript/DOM diagnostic.
+  Modern sites can still exceed the Wii's memory or depend on browser APIs
+  NetSurf does not implement.
 - Cookies and the CA bundle are redirected to `sd:/apps/netsurf/`; downloads
   and user choices still need Wii-specific defaults and runtime testing.
 - Network startup is asynchronous so a missing Dolphin network configuration
