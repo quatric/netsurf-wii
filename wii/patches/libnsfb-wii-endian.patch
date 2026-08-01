@@ -40,23 +40,25 @@ index 28e6673..938c998 100644
  
  #else
 diff --git a/src/surface/sdl.c b/src/surface/sdl.c
-index 8a73581..c507cf4 100644
+index 8a73581..e86910b 100644
 --- a/src/surface/sdl.c
 +++ b/src/surface/sdl.c
-@@ -10,6 +10,12 @@
+@@ -10,6 +10,14 @@
  #include <stdlib.h>
  #include <SDL/SDL.h>
  
 +#ifdef GEKKO
 +#include <gccore.h>
++#include <ogc/usbmouse.h>
 +#include <wiiuse/wpad.h>
++#include <wiikeyboard/keyboard.h>
 +#include <wupc/wupc.h>
 +#endif
 +
  #include "libnsfb.h"
  #include "libnsfb_event.h"
  #include "libnsfb_plot.h"
-@@ -21,6 +27,161 @@
+@@ -21,6 +29,298 @@
  #include "plot.h"
  #include "cursor.h"
  
@@ -65,6 +67,143 @@ index 8a73581..c507cf4 100644
 +static u32 wii_previous_buttons;
 +static int wii_previous_pointer_x = -1;
 +static int wii_previous_pointer_y = -1;
++static u8 wii_usb_mouse_buttons;
++static bool wii_usb_keyboard_ready;
++static bool wii_usb_mouse_ready;
++
++/* libogc's USB HID drivers are independent from SDL's Wii backend. Keep a
++ * local queue so one HID report can yield movement, wheel, and button events. */
++#define WII_USB_EVENT_QUEUE_SIZE 16
++static nsfb_event_t wii_usb_events[WII_USB_EVENT_QUEUE_SIZE];
++static unsigned int wii_usb_event_head;
++static unsigned int wii_usb_event_count;
++
++static void wii_usb_queue_event(enum nsfb_event_type_e type,
++        enum nsfb_key_code_e keycode, int x, int y)
++{
++    nsfb_event_t *event;
++    unsigned int tail;
++
++    if (wii_usb_event_count == WII_USB_EVENT_QUEUE_SIZE)
++        return;
++    tail = (wii_usb_event_head + wii_usb_event_count) %
++            WII_USB_EVENT_QUEUE_SIZE;
++    event = &wii_usb_events[tail];
++    event->type = type;
++    if (type == NSFB_EVENT_MOVE_RELATIVE) {
++        event->value.vector.x = x;
++        event->value.vector.y = y;
++        event->value.vector.z = 0;
++    } else {
++        event->value.keycode = keycode;
++    }
++    wii_usb_event_count++;
++}
++
++static bool wii_usb_dequeue_event(nsfb_event_t *event)
++{
++    if (wii_usb_event_count == 0)
++        return false;
++    *event = wii_usb_events[wii_usb_event_head];
++    wii_usb_event_head = (wii_usb_event_head + 1) % WII_USB_EVENT_QUEUE_SIZE;
++    wii_usb_event_count--;
++    return true;
++}
++
++static enum nsfb_key_code_e wii_usb_keycode(u16 symbol)
++{
++    if (symbol <= NSFB_KEY_DELETE)
++        return (enum nsfb_key_code_e)symbol;
++
++    switch (symbol) {
++    case KS_Shift_L: return NSFB_KEY_LSHIFT;
++    case KS_Shift_R: return NSFB_KEY_RSHIFT;
++    case KS_Control_L: return NSFB_KEY_LCTRL;
++    case KS_Control_R: return NSFB_KEY_RCTRL;
++    case KS_Alt_L: return NSFB_KEY_LALT;
++    case KS_Alt_R: return NSFB_KEY_RALT;
++    case KS_Meta_L: return NSFB_KEY_LMETA;
++    case KS_Meta_R: return NSFB_KEY_RMETA;
++    case KS_Caps_Lock: return NSFB_KEY_CAPSLOCK;
++    case KS_Num_Lock: return NSFB_KEY_NUMLOCK;
++    case KS_Home: return NSFB_KEY_HOME;
++    case KS_End: return NSFB_KEY_END;
++    case KS_Prior: return NSFB_KEY_PAGEUP;
++    case KS_Next: return NSFB_KEY_PAGEDOWN;
++    case KS_Up: return NSFB_KEY_UP;
++    case KS_Down: return NSFB_KEY_DOWN;
++    case KS_Left: return NSFB_KEY_LEFT;
++    case KS_Right: return NSFB_KEY_RIGHT;
++    case KS_Insert: return NSFB_KEY_INSERT;
++    case KS_F1: return NSFB_KEY_F1;
++    case KS_F2: return NSFB_KEY_F2;
++    case KS_F3: return NSFB_KEY_F3;
++    case KS_F4: return NSFB_KEY_F4;
++    case KS_F5: return NSFB_KEY_F5;
++    case KS_F6: return NSFB_KEY_F6;
++    case KS_F7: return NSFB_KEY_F7;
++    case KS_F8: return NSFB_KEY_F8;
++    case KS_F9: return NSFB_KEY_F9;
++    case KS_F10: return NSFB_KEY_F10;
++    case KS_F11: return NSFB_KEY_F11;
++    case KS_F12: return NSFB_KEY_F12;
++    default: return NSFB_KEY_UNKNOWN;
++    }
++}
++
++static bool wii_usb_input_event(nsfb_event_t *event)
++{
++    keyboard_event keyboard;
++    mouse_event mouse;
++
++    if (wii_usb_dequeue_event(event))
++        return true;
++
++    if (wii_usb_keyboard_ready && KEYBOARD_GetEvent(&keyboard)) {
++        enum nsfb_key_code_e keycode = wii_usb_keycode(keyboard.symbol);
++
++        if ((keyboard.type == KEYBOARD_PRESSED ||
++                keyboard.type == KEYBOARD_RELEASED) &&
++                keycode != NSFB_KEY_UNKNOWN) {
++            event->type = keyboard.type == KEYBOARD_PRESSED ?
++                    NSFB_EVENT_KEY_DOWN : NSFB_EVENT_KEY_UP;
++            event->value.keycode = keycode;
++            return true;
++        }
++    }
++
++    if (!wii_usb_mouse_ready || !MOUSE_GetEvent(&mouse))
++        return false;
++
++    if (mouse.rx != 0 || mouse.ry != 0)
++        wii_usb_queue_event(NSFB_EVENT_MOVE_RELATIVE, NSFB_KEY_UNKNOWN,
++                mouse.rx, mouse.ry);
++    if (mouse.rz > 0)
++        wii_usb_queue_event(NSFB_EVENT_KEY_DOWN, NSFB_KEY_MOUSE_4, 0, 0);
++    else if (mouse.rz < 0)
++        wii_usb_queue_event(NSFB_EVENT_KEY_DOWN, NSFB_KEY_MOUSE_5, 0, 0);
++
++    {
++        static const u8 button_masks[] = { 1, 4, 2 };
++        static const enum nsfb_key_code_e button_keys[] = {
++            NSFB_KEY_MOUSE_1, NSFB_KEY_MOUSE_2, NSFB_KEY_MOUSE_3
++        };
++        u8 changed = mouse.button ^ wii_usb_mouse_buttons;
++        unsigned int index;
++
++        for (index = 0; index < sizeof(button_masks) / sizeof(button_masks[0]);
++                index++) {
++            if ((changed & button_masks[index]) != 0) {
++                wii_usb_queue_event((mouse.button & button_masks[index]) != 0 ?
++                        NSFB_EVENT_KEY_DOWN : NSFB_EVENT_KEY_UP,
++                        button_keys[index], 0, 0);
++            }
++        }
++        wii_usb_mouse_buttons = mouse.button;
++    }
++
++    return wii_usb_dequeue_event(event);
++}
 +
 +static u32 wii_canonical_buttons(u32 pressed)
 +{
@@ -218,7 +357,7 @@ index 8a73581..c507cf4 100644
  enum nsfb_key_code_e sdl_nsfb_map[] = {
      NSFB_KEY_UNKNOWN,
      NSFB_KEY_UNKNOWN,
-@@ -458,8 +619,29 @@ static int sdl_initialise(nsfb_t *nsfb)
+@@ -458,10 +758,38 @@ static int sdl_initialise(nsfb_t *nsfb)
          return -1;
  
      /* initialise SDL library */
@@ -226,6 +365,9 @@ index 8a73581..c507cf4 100644
 +#ifdef GEKKO
 +    PAD_Init();
 +    WUPC_Init();
++    /* Both drivers poll for later device hot-plugging on their own threads. */
++    wii_usb_keyboard_ready = KEYBOARD_Init(NULL) == 0;
++    wii_usb_mouse_ready = MOUSE_Init() == 0;
 +#endif
 +    if (SDL_Init(SDL_INIT_TIMER | SDL_INIT_VIDEO
 +#ifdef GEKKO
@@ -234,6 +376,10 @@ index 8a73581..c507cf4 100644
 +                 ) < 0 ) {
          fprintf(stderr, "Unable to init SDL: %s\n", SDL_GetError());
 +#ifdef GEKKO
++        if (wii_usb_mouse_ready)
++            MOUSE_Deinit();
++        if (wii_usb_keyboard_ready)
++            KEYBOARD_Deinit();
 +        WUPC_Shutdown();
 +#endif
          return -1;
@@ -249,7 +395,9 @@ index 8a73581..c507cf4 100644
 +    }
 +#endif
  
-@@ -512,12 +694,26 @@ static int sdl_initialise(nsfb_t *nsfb)
+     sdl_screen = SDL_SetVideoMode(nsfb->width,
+                                   nsfb->height,
+@@ -512,12 +840,34 @@ static int sdl_initialise(nsfb_t *nsfb)
      SDL_ShowCursor(SDL_DISABLE);
      SDL_EnableKeyRepeat(300, 50);
  
@@ -271,12 +419,20 @@ index 8a73581..c507cf4 100644
 +        SDL_JoystickClose(wii_pointer_joystick);
 +        wii_pointer_joystick = NULL;
 +    }
++    if (wii_usb_mouse_ready) {
++        MOUSE_Deinit();
++        wii_usb_mouse_ready = false;
++    }
++    if (wii_usb_keyboard_ready) {
++        KEYBOARD_Deinit();
++        wii_usb_keyboard_ready = false;
++    }
 +    WUPC_Shutdown();
 +#endif
      SDL_Quit();
      return 0;
  }
-@@ -545,6 +741,19 @@ static bool sdl_input(nsfb_t *nsfb, nsfb_event_t *event, int timeout)
+@@ -545,6 +895,22 @@ static bool sdl_input(nsfb_t *nsfb, nsfb_event_t *event, int timeout)
  
      nsfb = nsfb; /* unused */
  
@@ -285,6 +441,9 @@ index 8a73581..c507cf4 100644
 +        SDL_JoystickUpdate();
 +    }
 +    WPAD_ScanPads();
++    if (wii_usb_input_event(event)) {
++        return true;
++    }
 +    if (wii_pointer_event(nsfb, event)) {
 +        return true;
 +    }
