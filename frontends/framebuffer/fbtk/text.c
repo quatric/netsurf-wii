@@ -510,6 +510,8 @@ text_input_click(fbtk_widget_t *widget, fbtk_callback_info *cbi)
 
 	fbtk_request_redraw(widget);
 
+	map_osk();
+
 	return 0;
 }
 
