@@ -130,6 +130,10 @@ osk_click(fbtk_widget_t *widget, fbtk_callback_info *cbi)
 	event.value.keycode = kbd_button->keycode;
 	fbtk_input(widget, &event);
 
+	if (kbd_button->keycode == NSFB_KEY_RETURN && cbi->event->type == NSFB_EVENT_KEY_UP) {
+		fbtk_set_mapping(osk, false);
+	}
+
 	return 0;
 }
 
