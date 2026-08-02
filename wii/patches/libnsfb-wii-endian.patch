@@ -40,7 +40,7 @@ index 28e6673..938c998 100644
  
  #else
 diff --git a/src/surface/sdl.c b/src/surface/sdl.c
-index 8a73581..cf7d4af 100644
+index 8a73581..7de3373 100644
 --- a/src/surface/sdl.c
 +++ b/src/surface/sdl.c
 @@ -10,6 +10,14 @@
@@ -357,13 +357,14 @@ index 8a73581..cf7d4af 100644
  enum nsfb_key_code_e sdl_nsfb_map[] = {
      NSFB_KEY_UNKNOWN,
      NSFB_KEY_UNKNOWN,
-@@ -458,11 +758,30 @@ static int sdl_initialise(nsfb_t *nsfb)
+@@ -458,11 +758,31 @@ static int sdl_initialise(nsfb_t *nsfb)
          return -1;
  
      /* initialise SDL library */
 -    if (SDL_Init(SDL_INIT_TIMER | SDL_INIT_VIDEO) < 0 ) {
 +#ifdef GEKKO
 +    PAD_Init();
++    WPAD_Init();
 +    WUPC_Init();
 +    /* Both drivers poll for later device hot-plugging on their own threads. */
 +    wii_usb_keyboard_ready = KEYBOARD_Init(NULL) == 0;
@@ -389,7 +390,7 @@ index 8a73581..cf7d4af 100644
      sdl_screen = SDL_SetVideoMode(nsfb->width,
                                    nsfb->height,
                                    nsfb->bpp,
-@@ -512,12 +831,44 @@ static int sdl_initialise(nsfb_t *nsfb)
+@@ -512,12 +832,44 @@ static int sdl_initialise(nsfb_t *nsfb)
      SDL_ShowCursor(SDL_DISABLE);
      SDL_EnableKeyRepeat(300, 50);
  
@@ -434,20 +435,13 @@ index 8a73581..cf7d4af 100644
      SDL_Quit();
      return 0;
  }
-@@ -545,6 +896,29 @@ static bool sdl_input(nsfb_t *nsfb, nsfb_event_t *event, int timeout)
+@@ -545,6 +897,22 @@ static bool sdl_input(nsfb_t *nsfb, nsfb_event_t *event, int timeout)
  
      nsfb = nsfb; /* unused */
  
 +#ifdef GEKKO
 +    if (wii_pointer_joystick != NULL) {
 +        SDL_JoystickUpdate();
-+        /* SDL_JoystickUpdate may internally reset the WPAD data format;
-+         * re-apply IR mode so that WPAD_IR returns valid tracking data. */
-+        {
-+            unsigned int channel;
-+            for (channel = 0; channel < 4; channel++)
-+                WPAD_SetDataFormat(channel, WPAD_FMT_BTNS_ACC_IR);
-+        }
 +    }
 +    WPAD_ScanPads();
 +    if (wii_usb_input_event(event)) {
