@@ -40,7 +40,7 @@ index 28e6673..938c998 100644
  
  #else
 diff --git a/src/surface/sdl.c b/src/surface/sdl.c
-index 8a73581..7de3373 100644
+index 8a73581..b6223d5 100644
 --- a/src/surface/sdl.c
 +++ b/src/surface/sdl.c
 @@ -10,6 +10,14 @@
@@ -58,15 +58,34 @@ index 8a73581..7de3373 100644
  #include "libnsfb.h"
  #include "libnsfb_event.h"
  #include "libnsfb_plot.h"
-@@ -21,6 +29,298 @@
+@@ -21,6 +29,334 @@
  #include "plot.h"
  #include "cursor.h"
  
 +#ifdef GEKKO
++/* SDL-wii's own event pump already turns Wii Remote channel zero into absolute
++ * mouse motion and maps its A and B buttons to the left and right mouse
++ * buttons. Nothing below synthesises those a second time: doing so delivered
++ * every pointer move and every click to the caller twice, which doubled
++ * NetSurf's hit testing and redraw work and turned single clicks into double
++ * clicks. Worse, emitting an event for any one pixel change in a jittery IR
++ * reading made sdl_input() return early on almost every call, so the event
++ * loop never blocked and spun on hit tests and cursor redraws.
++ *
++ * What SDL-wii does not cover, and what is still handled here, is the D-pad,
++ * Plus/Minus, 1/2 and Home on any channel, the buttons of remotes two to four,
++ * Wii U Pro Controllers via libwupc, and GameCube pads. */
++
++/* Minimum interval between hardware polls, in milliseconds. Rescanning on
++ * every call meant a WPAD scan and an SI transfer for each iteration of
++ * NetSurf's event loop. */
++#define WII_POLL_INTERVAL_MS 16
++
 +static SDL_Joystick *wii_pointer_joystick;
 +static u32 wii_previous_buttons;
-+static int wii_previous_pointer_x = -1;
-+static int wii_previous_pointer_y = -1;
++static u32 wii_last_poll_ticks;
++static u32 wii_polled_buttons;
++static bool wii_polled_valid;
 +static u8 wii_usb_mouse_buttons;
 +static bool wii_usb_keyboard_ready;
 +static bool wii_usb_mouse_ready;
@@ -250,6 +269,20 @@ index 8a73581..7de3373 100644
 +        pressed |= WPAD_ButtonsHeld(channel);
 +    pressed = wii_canonical_buttons(pressed);
 +
++    /* SDL already reports channel zero's A and B as mouse buttons. Suppress
++     * them here unless another channel is holding them, so that a single
++     * press is not reported twice. */
++    if ((pressed & (WPAD_BUTTON_A | WPAD_BUTTON_B)) != 0) {
++        u32 others = 0;
++
++        for (channel = 1; channel < 4; channel++)
++            others |= WPAD_ButtonsHeld(channel);
++        others = wii_canonical_buttons(others);
++
++        pressed &= ~(WPAD_BUTTON_A | WPAD_BUTTON_B);
++        pressed |= others & (WPAD_BUTTON_A | WPAD_BUTTON_B);
++    }
++
 +    if (pressed != 0)
 +        return pressed;
 +
@@ -298,9 +331,15 @@ index 8a73581..7de3373 100644
 +        NSFB_KEY_PLUS, NSFB_KEY_MINUS,
 +        NSFB_KEY_PAGEUP, NSFB_KEY_PAGEDOWN, NSFB_KEY_ESCAPE
 +    };
-+    u32 current = wii_controller_buttons();
-+    u32 changed = current ^ wii_previous_buttons;
++    u32 current;
++    u32 changed;
 +    unsigned int index;
++
++    if (!wii_polled_valid)
++        return false;
++
++    current = wii_polled_buttons;
++    changed = current ^ wii_previous_buttons;
 +
 +    for (index = 0; index < sizeof(masks) / sizeof(masks[0]); index++) {
 +        if ((changed & masks[index]) != 0) {
@@ -314,50 +353,47 @@ index 8a73581..7de3373 100644
 +    return false;
 +}
 +
-+static bool wii_pointer_event(nsfb_t *nsfb, nsfb_event_t *event)
++/**
++ * Refresh the cached controller state, at most once every
++ * WII_POLL_INTERVAL_MS.
++ *
++ * WPAD_ScanPads() is what keeps SDL-wii's own pointer and mouse button
++ * handling supplied with fresh data, so it has to happen here whether or not
++ * this file has any use for the result. It is rate limited because
++ * WUPC_UpdateButtonStats() and especially PAD_ScanPads(), which blocks on an
++ * SI transfer, are far too expensive to run once per event loop iteration.
++ *
++ * \return true when there may be an unreported button change to emit.
++ */
++static bool wii_poll_controllers(void)
 +{
-+    unsigned int channel;
++    u32 now = SDL_GetTicks();
 +
-+    for (channel = 0; channel < 4; channel++) {
-+        ir_t ir;
-+        int x;
-+        int y;
-+
-+        WPAD_IR(channel, &ir);
-+        if (!ir.valid)
-+            continue;
-+
-+        x = (int)ir.x;
-+        y = (int)ir.y;
-+        if (x < 0)
-+            x = 0;
-+        else if (x >= nsfb->width)
-+            x = nsfb->width - 1;
-+        if (y < 0)
-+            y = 0;
-+        else if (y >= nsfb->height)
-+            y = nsfb->height - 1;
-+
-+        if (x == wii_previous_pointer_x && y == wii_previous_pointer_y)
-+            return false;
-+
-+        wii_previous_pointer_x = x;
-+        wii_previous_pointer_y = y;
-+        event->type = NSFB_EVENT_MOVE_ABSOLUTE;
-+        event->value.vector.x = x;
-+        event->value.vector.y = y;
-+        event->value.vector.z = 0;
-+        return true;
++    if (wii_polled_valid &&
++        (now - wii_last_poll_ticks) < WII_POLL_INTERVAL_MS) {
++        /* Report the cached state so a change spanning several buttons is
++         * still drained one event per call, but do no hardware access. */
++        return wii_polled_buttons != wii_previous_buttons;
 +    }
 +
-+    return false;
++    wii_last_poll_ticks = now;
++
++    if (wii_pointer_joystick != NULL) {
++        SDL_JoystickUpdate();
++    }
++    WPAD_ScanPads();
++
++    wii_polled_buttons = wii_controller_buttons();
++    wii_polled_valid = true;
++
++    return wii_polled_buttons != wii_previous_buttons;
 +}
 +#endif
 +
  enum nsfb_key_code_e sdl_nsfb_map[] = {
      NSFB_KEY_UNKNOWN,
      NSFB_KEY_UNKNOWN,
-@@ -458,11 +758,31 @@ static int sdl_initialise(nsfb_t *nsfb)
+@@ -458,11 +794,31 @@ static int sdl_initialise(nsfb_t *nsfb)
          return -1;
  
      /* initialise SDL library */
@@ -390,7 +426,7 @@ index 8a73581..7de3373 100644
      sdl_screen = SDL_SetVideoMode(nsfb->width,
                                    nsfb->height,
                                    nsfb->bpp,
-@@ -512,12 +832,44 @@ static int sdl_initialise(nsfb_t *nsfb)
+@@ -512,12 +868,44 @@ static int sdl_initialise(nsfb_t *nsfb)
      SDL_ShowCursor(SDL_DISABLE);
      SDL_EnableKeyRepeat(300, 50);
  
@@ -435,23 +471,26 @@ index 8a73581..7de3373 100644
      SDL_Quit();
      return 0;
  }
-@@ -545,6 +897,22 @@ static bool sdl_input(nsfb_t *nsfb, nsfb_event_t *event, int timeout)
+@@ -545,6 +933,25 @@ static bool sdl_input(nsfb_t *nsfb, nsfb_event_t *event, int timeout)
  
      nsfb = nsfb; /* unused */
  
 +#ifdef GEKKO
-+    if (wii_pointer_joystick != NULL) {
-+        SDL_JoystickUpdate();
++    {
++        bool button_change = wii_poll_controllers();
++
++        if (wii_usb_input_event(event)) {
++            return true;
++        }
++        if (button_change && wii_controller_event(event)) {
++            return true;
++        }
 +    }
-+    WPAD_ScanPads();
-+    if (wii_usb_input_event(event)) {
-+        return true;
-+    }
-+    if (wii_pointer_event(nsfb, event)) {
-+        return true;
-+    }
-+    if (wii_controller_event(event)) {
-+        return true;
++
++    /* Never block indefinitely: the poll above is the only thing refreshing
++     * WPAD state, and SDL's own wait would starve it. */
++    if (timeout < 0 || timeout > WII_POLL_INTERVAL_MS) {
++        timeout = WII_POLL_INTERVAL_MS;
 +    }
 +#endif
 +

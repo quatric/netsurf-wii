@@ -125,9 +125,27 @@ NetSurf fetcher -> libcurl -> libogc BSD sockets -> Wii network interface
 - USB keyboard and mouse input uses libogc's boot-protocol HID drivers. It is
   intended for ordinary wired devices; wireless receivers and composite HID
   devices need hardware testing and are not supported on request.
-- Wii Remote IR is polled directly on all four channels and emitted as absolute
-  pointer movement; A and B map to the left and right mouse buttons. SDL's Wii
-  joystick is also polled to keep its controller state current.
+- Wii Remote channel zero's IR pointer and its A and B buttons are handled by
+  SDL-wii's own event pump, which already emits absolute mouse motion and left
+  and right mouse buttons for them. The `libnsfb` patch deliberately does not
+  synthesise those a second time. It does call `WPAD_ScanPads()`, because that
+  is what keeps SDL's handling supplied with fresh data, and it rate limits
+  every hardware poll to 16 ms. Remotes two to four contribute their buttons
+  through the patch's own path.
+- malloc is routed at libogc's MEM2 arena (`MALLOC_MEM2` in
+  `frontends/framebuffer/wii_compat.c`). Without it libogc serves every
+  allocation from arena 1 in MEM1, which the executable, SDL's surfaces and the
+  GX FIFO have already largely consumed, and the low-memory profile's budgets
+  cannot be met. MEM2 has higher latency than MEM1, so this trades some speed
+  for roughly 50 MiB of usable heap.
+- The framebuffer is 640x480x32. Dropping to 16bpp would halve both the plot
+  and the GX texture conversion bandwidth, but NetSurf's 16bpp plotters and
+  SDL-wii's 16bpp path are untested here.
+- Both the `libnsfb` patch and SDL-wii's event pump drain libogc's USB HID
+  queues with `KEYBOARD_GetEvent()` and `MOUSE_GetEvent()`. Reads are
+  destructive, so the two paths race for each report and a given keystroke
+  reaches NetSurf through whichever won. This needs resolving in favour of one
+  path; it has not been done.
 - Wii U Pro Controllers are detected through libwupc before SDL initializes
   WPAD. GlowWii-style four-channel aggregation gives them precedence over
   GameCube pads. A/B click, the D-pad sends arrows, Plus/Minus send `+`/`-`,
@@ -147,6 +165,9 @@ NetSurf fetcher -> libcurl -> libogc BSD sockets -> Wii network interface
 
 The small `libnsfb` patch adds devkitPPC/newlib endian detection and Wii input
 polling. It is kept separate so it can be proposed upstream.
+`bootstrap-browser-deps.sh` only applies it when it is not already applied, so
+after editing `wii/.deps/netsurf-workspace/libnsfb` regenerate the patch with
+`git -C wii/.deps/netsurf-workspace/libnsfb diff > wii/patches/libnsfb-wii-endian.patch`.
 
 ## Support
 
