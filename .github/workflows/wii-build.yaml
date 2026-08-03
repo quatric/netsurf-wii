@@ -64,7 +64,12 @@ jobs:
           test -s wii/dist/apps/netsurf/boot.dol
           grep -Fq '<coder>quatric</coder>' wii/dist/apps/netsurf/meta.xml
           "$DEVKITPPC/bin/powerpc-eabi-nm" nsfb | grep -Fq WUPC_Init
-          "$DEVKITPPC/bin/powerpc-eabi-nm" nsfb | grep -Fq WPAD_IR
+          # WPAD_Data, not WPAD_IR: SDL-wii's own event pump reads channel
+          # zero's IR position and A/B state directly out of the WPADData
+          # struct, so it never calls WPAD_IR(), and neither does our libnsfb
+          # patch now that it no longer duplicates SDL's channel zero
+          # handling. WPAD_Data is what actually proves IR support is linked.
+          "$DEVKITPPC/bin/powerpc-eabi-nm" nsfb | grep -Fq WPAD_Data
           "$DEVKITPPC/bin/powerpc-eabi-nm" nsfb | grep -Fq WPAD_ScanPads
           if strings wii/dist/apps/netsurf/boot.dol | \
               grep -Eiq '/home/runner|/github/workspace'; then
