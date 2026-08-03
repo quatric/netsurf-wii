@@ -6,6 +6,15 @@
 #include "utils/errors.h"
 #include "utils/file.h"
 
+/* libogc's _sbrk_r() serves malloc from arena 1 unless this weak libogc symbol
+ * is overridden with a non-zero value, so without this NetSurf never sees MEM2
+ * at all. Arena 1 lives in MEM1, of which the executable, SDL's surfaces and
+ * the GX FIFO have already taken their share by the time NetSurf starts,
+ * leaving well under half of the 24 MiB. Arena 2 is roughly 50 MiB of
+ * otherwise unused MEM2. MEM2 has higher latency than MEM1, but the document
+ * tree, memory cache and decoded bitmaps do not fit in MEM1 at all. */
+u32 MALLOC_MEM2 = 1;
+
 /* Compatibility with the rw-r-r-0644 mbedTLS 3.6.4 package. */
 u64 gettime(void);
 
