@@ -483,16 +483,6 @@ static int fewidth;
 static int feheight;
 static const char *feurl;
 
-#ifdef GEKKO
-static void wii_network_initialised(int result, void *context)
-{
-	(void)context;
-	if (result < 0) {
-		fprintf(stderr, "Unable to initialise Wii networking (%d)\n",
-			result);
-	}
-}
-#endif
 
 static void
 framebuffer_pick_default_fename(void *ctx, const char *name, enum nsfb_type_e type)
@@ -2326,11 +2316,15 @@ main(int argc, char** argv)
 	WII_LOG("entry\n");
 	fatInitDefault();
 	WII_LOG("FAT initialised\n");
-	ret = wiisocket_async_init(wii_network_initialised, NULL);
+	/* Block until the network interface is actually usable: an
+	 * async init would let curl fetches race the IOS network
+	 * stack/DHCP negotiation and fail with "unable to connect".
+	 */
+	ret = wiisocket_init();
 	if (ret < 0) {
 		fprintf(stderr, "Unable to start Wii networking (%d)\n", ret);
 	}
-	WII_LOG("network startup requested (%d)\n", ret);
+	WII_LOG("network startup complete (%d)\n", ret);
 #endif
 
 #ifdef GEKKO
