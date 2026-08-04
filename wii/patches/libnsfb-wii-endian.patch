@@ -40,7 +40,7 @@ index 28e6673..938c998 100644
  
  #else
 diff --git a/src/surface/sdl.c b/src/surface/sdl.c
-index 8a73581..b6223d5 100644
+index 8a73581..55a5ce5 100644
 --- a/src/surface/sdl.c
 +++ b/src/surface/sdl.c
 @@ -10,6 +10,14 @@
@@ -426,7 +426,7 @@ index 8a73581..b6223d5 100644
      sdl_screen = SDL_SetVideoMode(nsfb->width,
                                    nsfb->height,
                                    nsfb->bpp,
-@@ -512,12 +868,44 @@ static int sdl_initialise(nsfb_t *nsfb)
+@@ -512,12 +868,54 @@ static int sdl_initialise(nsfb_t *nsfb)
      SDL_ShowCursor(SDL_DISABLE);
      SDL_EnableKeyRepeat(300, 50);
  
@@ -437,12 +437,22 @@ index 8a73581..b6223d5 100644
 +    wii_pointer_joystick = SDL_JoystickOpen(0);
 +    /* Set IR data format AFTER SDL_JoystickOpen -- SDL's own WPAD init inside
 +     * JoystickOpen may reset the format to buttons-only, losing IR tracking.
-+     * WPAD_SetVRes maps the raw IR camera coordinates to our screen size. */
++     * WPAD_SetVRes maps the raw IR camera coordinates to a coordinate space;
++     * that space must match the TV-visible (safe) area actually output by
++     * VIDEO, not our logical nsfb surface size, or the pointer will never
++     * reach the true edges/top of the picture whenever the two differ. */
 +    {
 +        unsigned int channel;
++        unsigned int vres_w = nsfb->width;
++        unsigned int vres_h = nsfb->height;
++        GXRModeObj *vmode = VIDEO_GetCurrentMode();
++        if (vmode != NULL) {
++            vres_w = vmode->viWidth;
++            vres_h = vmode->viHeight;
++        }
 +        for (channel = 0; channel < 4; channel++) {
 +            WPAD_SetDataFormat(channel, WPAD_FMT_BTNS_ACC_IR);
-+            WPAD_SetVRes(channel, nsfb->width, nsfb->height);
++            WPAD_SetVRes(channel, vres_w, vres_h);
 +        }
 +    }
 +#endif
@@ -471,7 +481,7 @@ index 8a73581..b6223d5 100644
      SDL_Quit();
      return 0;
  }
-@@ -545,6 +933,25 @@ static bool sdl_input(nsfb_t *nsfb, nsfb_event_t *event, int timeout)
+@@ -545,6 +943,25 @@ static bool sdl_input(nsfb_t *nsfb, nsfb_event_t *event, int timeout)
  
      nsfb = nsfb; /* unused */
  
