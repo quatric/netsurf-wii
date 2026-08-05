@@ -15,30 +15,6 @@ index db60ea9..d6968e1 100644
      /* windows does not have endian.h but uses these macros */
      #if __BYTE_ORDER__ == __ORDER_BIG_ENDIAN__
          #define NSFB_BE_BYTE_ORDER
-diff --git a/src/plot/32bpp-xrgb8888.c b/src/plot/32bpp-xrgb8888.c
-index 28e6673..938c998 100644
---- a/src/plot/32bpp-xrgb8888.c
-+++ b/src/plot/32bpp-xrgb8888.c
-@@ -40,7 +40,8 @@ static inline uint32_t *get_xy_loc(nsfb_t *nsfb, int x, int y)
-  */
- static inline nsfb_colour_t pixel_to_colour(UNUSED nsfb_t *nsfb, uint32_t pixel)
- {
--        return (pixel >> 8) & ~0xFF000000U;
-+	return (((pixel >> 16) | (pixel << 16)) & 0x00FF00FFU) |
-+		(pixel & 0x0000FF00U);
- }
- 
- /**
-@@ -52,7 +53,8 @@ static inline nsfb_colour_t pixel_to_colour(UNUSED nsfb_t *nsfb, uint32_t pixel)
-  */
- static inline uint32_t colour_to_pixel(UNUSED nsfb_t *nsfb, nsfb_colour_t c)
- {
--        return (c << 8);
-+	return (((c >> 16) | (c << 16)) & 0x00FF00FFU) |
-+		(c & 0x0000FF00U);
- }
- 
- #else
 diff --git a/src/surface/sdl.c b/src/surface/sdl.c
 index 8a73581..ad0fdfd 100644
 --- a/src/surface/sdl.c
