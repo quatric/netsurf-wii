@@ -2411,12 +2411,11 @@ main(int argc, char** argv)
 	 * (fbtk_warp_pointer() clamps to root->x/y/width/height) inside the
 	 * TV-visible picture, without touching plotting code. */
 	{
-		fbtk_widget_t *root = fbtk_get_root_widget(fbtk);
-		int full_width = fbtk_get_width(root);
-		int full_height = fbtk_get_height(root);
+		int full_width = fbtk_get_width(fbtk);
+		int full_height = fbtk_get_height(fbtk);
 		int margin_x = full_width * 5 / 100;
 		int margin_y = full_height * 5 / 100;
-		fbtk_set_pos_and_size(root, margin_x, margin_y,
+		fbtk_set_pos_and_size(fbtk, margin_x, margin_y,
 				full_width - (2 * margin_x),
 				full_height - (2 * margin_y));
 	}
