@@ -15,6 +15,52 @@ index db60ea9..d6968e1 100644
      /* windows does not have endian.h but uses these macros */
      #if __BYTE_ORDER__ == __ORDER_BIG_ENDIAN__
          #define NSFB_BE_BYTE_ORDER
+diff --git a/src/plot/32bpp-xbgr8888.c b/src/plot/32bpp-xbgr8888.c
+index 2492054..0b35a09 100644
+--- a/src/plot/32bpp-xbgr8888.c
++++ b/src/plot/32bpp-xbgr8888.c
+@@ -28,7 +28,40 @@ static inline uint32_t *get_xy_loc(nsfb_t *nsfb, int x, int y)
+         return (void *)(nsfb->ptr + (y * nsfb->linelen) + (x << 2));
+ }
+ 
+-#ifdef NSFB_BE_BYTE_ORDER
++#if defined(GEKKO)
++
++/* Decoded-image RAM surfaces of this format are populated two ways: image
++ * decoders memcpy raw R,G,B,A bytes directly into the buffer (see
++ * frontends/framebuffer/bitmap.c's bitmap_get_buffer()), and NetSurf's own
++ * plotters draw into it (e.g. for thumbnails) via colour_to_pixel() below.
++ * Both have to agree on the same physical byte layout, or a bitmap that's
++ * partly decoder-written and partly plotter-drawn would have inconsistent
++ * colours. Storing the canonical value such that a native (big endian)
++ * store produces bytes R,G,B,A keeps that agreement, and matches the
++ * generic big-endian formula's little-endian counterpart below, which is
++ * a byte-order identity for the same reason on little-endian hosts. */
++
++static inline nsfb_colour_t pixel_to_colour(UNUSED nsfb_t *nsfb, uint32_t pixel)
++{
++        /* bytes R,G,B,A loaded as a big endian word -> 0xRRGGBBAA;
++         * convert to canonical 0xAABBGGRR, alpha forced opaque to match
++         * the little endian identity conversion below. */
++        return 0xFF000000U |
++               ((pixel >> 24) & 0x000000FFU) |
++               ((pixel >> 8)  & 0x0000FF00U) |
++               ((pixel << 8)  & 0x00FF0000U);
++}
++
++static inline uint32_t colour_to_pixel(UNUSED nsfb_t *nsfb, nsfb_colour_t c)
++{
++        /* 0xAABBGGRR -> a word that stores as bytes R,G,B,A */
++        return ((c & 0x000000FFU) << 24) |
++               ((c & 0x0000FF00U) << 8)  |
++               ((c & 0x00FF0000U) >> 8)  |
++               ((c >> 24) & 0x000000FFU);
++}
++
++#elif defined(NSFB_BE_BYTE_ORDER)
+ 
+ /**
+  * convert a 32bpp big endian pixel value to netsurf colour
 diff --git a/src/plot/32bpp-xrgb8888.c b/src/plot/32bpp-xrgb8888.c
 index 28e6673..04a8cde 100644
 --- a/src/plot/32bpp-xrgb8888.c
@@ -57,8 +103,137 @@ index 28e6673..04a8cde 100644
  
  /**
   * convert a 32bpp big endian pixel value to netsurf colour
+diff --git a/src/plot/api.c b/src/plot/api.c
+index 1746d2e..5daa295 100644
+--- a/src/plot/api.c
++++ b/src/plot/api.c
+@@ -1,6 +1,7 @@
+ /* public plotter interface */
+ 
+ #include <stdbool.h>
++#include <stdlib.h>
+ 
+ #include "libnsfb.h"
+ #include "libnsfb_plot.h"
+@@ -126,18 +127,62 @@ bool nsfb_plot_ellipse_fill(nsfb_t *nsfb, nsfb_bbox_t *ellipse, nsfb_colour_t c)
+     return nsfb->plotter_fns->ellipse_fill(nsfb, ellipse, c);
+ }
+ 
++#ifdef GEKKO
++/* Decoded-image RAM surfaces (NSFB_FMT_XBGR8888/ABGR8888) hold raw R,G,B,A
++ * bytes written directly by image decoders, independent of that format's
++ * own pixel_to_colour(). The fast path below reinterprets those bytes as
++ * an nsfb_colour_t array and hands them straight to the destination
++ * surface's own colour_to_pixel(), skipping any conversion -- which is
++ * only valid because on little endian a native load of bytes R,G,B,A
++ * happens to equal this library's canonical 0xAABBGGRR already. On big
++ * endian Wii hardware the same load instead produces 0xRRGGBBAA, so every
++ * channel lands in the wrong bit position downstream. Build an explicit,
++ * byte-order-independent canonical copy first. */
++static nsfb_colour_t *
++wii_bitmap_to_colour(nsfb_t *srcfb)
++{
++    int total = srcfb->width * srcfb->height;
++    int i;
++    const unsigned char *srcbytes = (const unsigned char *)srcfb->ptr;
++    nsfb_colour_t *out;
++
++    if (total <= 0)
++        return NULL;
++
++    out = malloc((size_t)total * sizeof(nsfb_colour_t));
++    if (out == NULL)
++        return NULL;
++
++    for (i = 0; i < total; i++) {
++        const unsigned char *p = srcbytes + ((size_t)i * 4);
++        out[i] = ((nsfb_colour_t)p[3] << 24) |
++                 ((nsfb_colour_t)p[2] << 16) |
++                 ((nsfb_colour_t)p[1] << 8)  |
++                  (nsfb_colour_t)p[0];
++    }
++
++    return out;
++}
++#endif
++
+ /* copy an area of surface from one location to another.
+  *
+  * @warning This implementation is woefully incomplete!
+  */
+ bool
+-nsfb_plot_copy(nsfb_t *srcfb, 
+-	       nsfb_bbox_t *srcbox, 
+-	       nsfb_t *dstfb, 
++nsfb_plot_copy(nsfb_t *srcfb,
++	       nsfb_bbox_t *srcbox,
++	       nsfb_t *dstfb,
+ 	       nsfb_bbox_t *dstbox)
+ {
+     bool trans = false;
+     nsfb_colour_t srccol;
++    const nsfb_colour_t *blit_src;
++#ifdef GEKKO
++    nsfb_colour_t *converted = NULL;
++    bool src_is_decoded_bitmap = (srcfb->format == NSFB_FMT_XBGR8888) ||
++            (srcfb->format == NSFB_FMT_ABGR8888);
++#endif
+ 
+     if (srcfb == dstfb) {
+ 	return dstfb->plotter_fns->copy(srcfb, srcbox, dstbox);
+@@ -148,19 +193,46 @@ nsfb_plot_copy(nsfb_t *srcfb,
+     }
+ 
+     if ((srcfb->width == 1) && (srcfb->height == 1)) {
++#ifdef GEKKO
++	if (src_is_decoded_bitmap) {
++	    const unsigned char *p = (const unsigned char *)srcfb->ptr;
++	    srccol = ((nsfb_colour_t)p[3] << 24) | ((nsfb_colour_t)p[2] << 16) |
++	             ((nsfb_colour_t)p[1] << 8)  |  (nsfb_colour_t)p[0];
++	} else
++#endif
+ 	srccol = *(nsfb_colour_t *)(void *)(srcfb->ptr);
+-	
++
+ 	/* check for completely transparent */
+ 	if ((srccol & 0xff000000) == 0)
+-	    return true; 
++	    return true;
+ 
+ 	/* completely opaque pixels can be replaced with fill */
+ 	if ((srccol & 0xff000000) == 0xff000000)
+ 	    return dstfb->plotter_fns->fill(dstfb, dstbox, srccol);
+     }
+ 
+-    return dstfb->plotter_fns->bitmap(dstfb, dstbox, (const nsfb_colour_t *)(void *)srcfb->ptr, srcfb->width, srcfb->height, (srcfb->linelen * 8) / srcfb->bpp, trans);
+-    
++    blit_src = (const nsfb_colour_t *)(void *)srcfb->ptr;
++#ifdef GEKKO
++    if (src_is_decoded_bitmap) {
++        converted = wii_bitmap_to_colour(srcfb);
++        if (converted != NULL)
++            blit_src = converted;
++    }
++#endif
++
++    {
++        bool ret = dstfb->plotter_fns->bitmap(dstfb, dstbox, blit_src,
++                srcfb->width, srcfb->height,
++#ifdef GEKKO
++                (converted != NULL) ? srcfb->width :
++#endif
++                (srcfb->linelen * 8) / srcfb->bpp,
++                trans);
++#ifdef GEKKO
++        free(converted);
++#endif
++        return ret;
++    }
+ }
+ 
+ bool nsfb_plot_bitmap(nsfb_t *nsfb, const nsfb_bbox_t *loc, const nsfb_colour_t *pixel, int bmp_width, int bmp_height, int bmp_stride, bool alpha)
 diff --git a/src/surface/sdl.c b/src/surface/sdl.c
-index 8a73581..c3efcce 100644
+index 8a73581..a6f8afa 100644
 --- a/src/surface/sdl.c
 +++ b/src/surface/sdl.c
 @@ -10,6 +10,14 @@
@@ -76,7 +251,7 @@ index 8a73581..c3efcce 100644
  #include "libnsfb.h"
  #include "libnsfb_event.h"
  #include "libnsfb_plot.h"
-@@ -21,6 +29,334 @@
+@@ -21,6 +29,335 @@
  #include "plot.h"
  #include "cursor.h"
  
@@ -163,6 +338,7 @@ index 8a73581..c3efcce 100644
 +    case KS_Meta_R: return NSFB_KEY_RMETA;
 +    case KS_Caps_Lock: return NSFB_KEY_CAPSLOCK;
 +    case KS_Num_Lock: return NSFB_KEY_NUMLOCK;
++    case KS_KP_Enter: return NSFB_KEY_RETURN;
 +    case KS_Home: return NSFB_KEY_HOME;
 +    case KS_End: return NSFB_KEY_END;
 +    case KS_Prior: return NSFB_KEY_PAGEUP;
@@ -411,7 +587,7 @@ index 8a73581..c3efcce 100644
  enum nsfb_key_code_e sdl_nsfb_map[] = {
      NSFB_KEY_UNKNOWN,
      NSFB_KEY_UNKNOWN,
-@@ -458,11 +794,31 @@ static int sdl_initialise(nsfb_t *nsfb)
+@@ -458,11 +795,31 @@ static int sdl_initialise(nsfb_t *nsfb)
          return -1;
  
      /* initialise SDL library */
@@ -444,7 +620,7 @@ index 8a73581..c3efcce 100644
      sdl_screen = SDL_SetVideoMode(nsfb->width,
                                    nsfb->height,
                                    nsfb->bpp,
-@@ -478,10 +834,20 @@ static int sdl_initialise(nsfb_t *nsfb)
+@@ -478,10 +835,20 @@ static int sdl_initialise(nsfb_t *nsfb)
  
      switch (sdl_fmt->BitsPerPixel) {
      case 32:
@@ -465,7 +641,7 @@ index 8a73581..c3efcce 100644
          break;
  
      default:
-@@ -512,12 +878,56 @@ static int sdl_initialise(nsfb_t *nsfb)
+@@ -512,12 +879,56 @@ static int sdl_initialise(nsfb_t *nsfb)
      SDL_ShowCursor(SDL_DISABLE);
      SDL_EnableKeyRepeat(300, 50);
  
@@ -522,7 +698,7 @@ index 8a73581..c3efcce 100644
      SDL_Quit();
      return 0;
  }
-@@ -545,6 +955,25 @@ static bool sdl_input(nsfb_t *nsfb, nsfb_event_t *event, int timeout)
+@@ -545,6 +956,25 @@ static bool sdl_input(nsfb_t *nsfb, nsfb_event_t *event, int timeout)
  
      nsfb = nsfb; /* unused */
  
