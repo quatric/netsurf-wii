@@ -276,6 +276,42 @@ framebuffer_plot_path(const struct redraw_context *ctx,
 }
 
 
+#ifdef GEKKO
+/* Decoded-image RAM surfaces (NSFB_FMT_XBGR8888/ABGR8888) hold raw
+ * R,G,B,A bytes written by image decoders, which on big endian Wii
+ * hardware are not the same bit pattern as this library's canonical
+ * nsfb_colour_t (0xAABBGGRR) -- see the matching fix and longer
+ * explanation in libnsfb's src/plot/api.c (nsfb_plot_copy) and
+ * src/plot/32bpp-xbgr8888.c. The single-pixel reads below need the same
+ * conversion; nsfb_plot_bitmap_tiles() needs a fully converted copy. */
+static nsfb_colour_t wii_bitmap_pixel_to_colour(const unsigned char *bmptr)
+{
+	return ((nsfb_colour_t)bmptr[3] << 24) | ((nsfb_colour_t)bmptr[2] << 16) |
+	       ((nsfb_colour_t)bmptr[1] << 8)  |  (nsfb_colour_t)bmptr[0];
+}
+
+static nsfb_colour_t *
+wii_bitmap_to_colour(const unsigned char *bmptr, int width, int height)
+{
+	int total = width * height;
+	int i;
+	nsfb_colour_t *out;
+
+	if (total <= 0)
+		return NULL;
+
+	out = malloc((size_t)total * sizeof(nsfb_colour_t));
+	if (out == NULL)
+		return NULL;
+
+	for (i = 0; i < total; i++) {
+		out[i] = wii_bitmap_pixel_to_colour(bmptr + ((size_t)i * 4));
+	}
+
+	return out;
+}
+#endif
+
 /**
  * Plot a bitmap
  *
@@ -343,12 +379,18 @@ framebuffer_plot_bitmap(const struct redraw_context *ctx,
 	nsfb_get_geometry(bm, &bmwidth, &bmheight, &bmformat);
 	nsfb_get_buffer(bm, &bmptr, &bmstride);
 
+#ifdef GEKKO
+	nsfb_colour_t bmptr_col = wii_bitmap_pixel_to_colour(bmptr);
+#else
+	nsfb_colour_t bmptr_col = *(nsfb_colour_t *)bmptr;
+#endif
+
 	/* Optimise tiled plots of 1x1 bitmaps by replacing with a flat fill
 	 * of the area.  Can only be done when image is fully opaque. */
 	if ((bmwidth == 1) && (bmheight == 1)) {
-		if ((*(nsfb_colour_t *)bmptr & 0xff000000) != 0) {
+		if ((bmptr_col & 0xff000000) != 0) {
 			if (!nsfb_plot_rectangle_fill(nsfb, &clipbox,
-						      *(nsfb_colour_t *)bmptr)) {
+						      bmptr_col)) {
 				return NSERROR_INVALID;
 			}
 			return NSERROR_OK;
@@ -363,7 +405,7 @@ framebuffer_plot_bitmap(const struct redraw_context *ctx,
 			/** TODO: Currently using top left pixel. Maybe centre
 			 *        pixel or average value would be better. */
 			if (!nsfb_plot_rectangle_fill(nsfb, &clipbox,
-						      *(nsfb_colour_t *)bmptr)) {
+						      bmptr_col)) {
 				return NSERROR_INVALID;
 			}
 			return NSERROR_OK;
@@ -386,12 +428,30 @@ framebuffer_plot_bitmap(const struct redraw_context *ctx,
 	loc.x1 = loc.x0 + width;
 	loc.y1 = loc.y0 + height;
 
+#ifdef GEKKO
+	{
+	nsfb_colour_t *converted = wii_bitmap_to_colour(bmptr, bmwidth, bmheight);
+	const nsfb_colour_t *tile_src = (converted != NULL) ?
+			converted : (const nsfb_colour_t *)bmptr;
+	int tile_stride = (converted != NULL) ? bmwidth : (bmstride * 8 / 32);
+
+	/* plot tiling across and down to extents */
+	nsfb_plot_bitmap_tiles(nsfb, &loc,
+			repeat_x ? ((clipbox.x1 - x) + width  - 1) / width  : 1,
+			repeat_y ? ((clipbox.y1 - y) + height - 1) / height : 1,
+			tile_src, bmwidth, bmheight,
+			tile_stride, bmformat == NSFB_FMT_ABGR8888);
+
+	free(converted);
+	}
+#else
 	/* plot tiling across and down to extents */
 	nsfb_plot_bitmap_tiles(nsfb, &loc,
 			repeat_x ? ((clipbox.x1 - x) + width  - 1) / width  : 1,
 			repeat_y ? ((clipbox.y1 - y) + height - 1) / height : 1,
 			(nsfb_colour_t *)bmptr, bmwidth, bmheight,
 			bmstride * 8 / 32, bmformat == NSFB_FMT_ABGR8888);
+#endif
 
 	return NSERROR_OK;
 }

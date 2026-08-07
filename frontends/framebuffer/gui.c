@@ -689,6 +689,16 @@ static void framebuffer_run(void)
 			if ((event.type == NSFB_EVENT_CONTROL) &&
 			    (event.value.controlcode ==  NSFB_CONTROL_QUIT))
 				fb_complete = true;
+#ifdef GEKKO
+			/* The Wii Remote HOME button is mapped to
+			 * NSFB_KEY_ESCAPE by the surface layer; there is no
+			 * window manager on real hardware to ever deliver
+			 * NSFB_CONTROL_QUIT, so without this the app could
+			 * never be exited. */
+			if ((event.type == NSFB_EVENT_KEY_DOWN) &&
+			    (event.value.keycode == NSFB_KEY_ESCAPE))
+				fb_complete = true;
+#endif
 		}
 
 		fbtk_redraw(fbtk);
@@ -2390,6 +2400,27 @@ main(int argc, char** argv)
 
 	fbtk = fbtk_init(nsfb);
 	WII_LOG("toolkit initialised\n");
+
+#ifdef GEKKO
+	/* Real CRTs commonly overscan a 640x480 picture, cropping a margin
+	 * from every edge that nothing in VIDEO/GX compensates for on its
+	 * own. Shrinking the root widget's bounds here -- rather than the
+	 * underlying nsfb surface -- keeps every child window (browser
+	 * content, toolbar, on-screen keyboard, both sized off
+	 * fbtk_get_width/height(root)) and the pointer's clamped range
+	 * (fbtk_warp_pointer() clamps to root->x/y/width/height) inside the
+	 * TV-visible picture, without touching plotting code. */
+	{
+		fbtk_widget_t *root = fbtk_get_root_widget(fbtk);
+		int full_width = fbtk_get_width(root);
+		int full_height = fbtk_get_height(root);
+		int margin_x = full_width * 5 / 100;
+		int margin_y = full_height * 5 / 100;
+		fbtk_set_pos_and_size(root, margin_x, margin_y,
+				full_width - (2 * margin_x),
+				full_height - (2 * margin_y));
+	}
+#endif
 
 	fbtk_enable_oskb(fbtk);
 
