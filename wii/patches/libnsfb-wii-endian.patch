@@ -15,8 +15,50 @@ index db60ea9..d6968e1 100644
      /* windows does not have endian.h but uses these macros */
      #if __BYTE_ORDER__ == __ORDER_BIG_ENDIAN__
          #define NSFB_BE_BYTE_ORDER
+diff --git a/src/plot/32bpp-xrgb8888.c b/src/plot/32bpp-xrgb8888.c
+index 28e6673..04a8cde 100644
+--- a/src/plot/32bpp-xrgb8888.c
++++ b/src/plot/32bpp-xrgb8888.c
+@@ -29,7 +29,36 @@ static inline uint32_t *get_xy_loc(nsfb_t *nsfb, int x, int y)
+ }
+ 
+ 
+-#ifdef NSFB_BE_BYTE_ORDER
++#if defined(GEKKO)
++
++/* SDL-wii uploads the 32bpp shadow surface into a GX_TF_RGBA8 texture with
++ * UpdateRect_32()/Set_RGBAPixel(), which read the four bytes of a pixel as
++ * alpha, red, green, blue in that order -- i.e. 0xAARRGGBB once loaded as a
++ * big endian word. The generic big endian formula below stores 0xBBGGRR00
++ * instead, which drops blue entirely (hence an overall yellow cast) and
++ * rotates the remaining channels. */
++
++static inline nsfb_colour_t pixel_to_colour(UNUSED nsfb_t *nsfb, uint32_t pixel)
++{
++        /* 0xAARRGGBB -> 0xAABBGGRR */
++        return 0xFF000000U |
++               ((pixel & 0x000000FFU) << 16) |
++                (pixel & 0x0000FF00U) |
++               ((pixel & 0x00FF0000U) >> 16);
++}
++
++static inline uint32_t colour_to_pixel(UNUSED nsfb_t *nsfb, nsfb_colour_t c)
++{
++        /* 0xAABBGGRR -> 0xAARRGGBB. The alpha byte is forced opaque: it ends
++         * up in the texture's alpha channel, and SDL-wii's GX blend setup
++         * would otherwise let a zero alpha erase the pixel. */
++        return 0xFF000000U |
++               ((c & 0x000000FFU) << 16) |
++                (c & 0x0000FF00U) |
++               ((c & 0x00FF0000U) >> 16);
++}
++
++#elif defined(NSFB_BE_BYTE_ORDER)
+ 
+ /**
+  * convert a 32bpp big endian pixel value to netsurf colour
 diff --git a/src/surface/sdl.c b/src/surface/sdl.c
-index 8a73581..ad0fdfd 100644
+index 8a73581..c3efcce 100644
 --- a/src/surface/sdl.c
 +++ b/src/surface/sdl.c
 @@ -10,6 +10,14 @@
@@ -402,7 +444,28 @@ index 8a73581..ad0fdfd 100644
      sdl_screen = SDL_SetVideoMode(nsfb->width,
                                    nsfb->height,
                                    nsfb->bpp,
-@@ -512,12 +868,56 @@ static int sdl_initialise(nsfb_t *nsfb)
+@@ -478,10 +834,20 @@ static int sdl_initialise(nsfb_t *nsfb)
+ 
+     switch (sdl_fmt->BitsPerPixel) {
+     case 32:
++#ifdef GEKKO
++        /* SDL-wii's WII_SetVideoMode calls SDL_ReallocFormat() with
++         * r_mask == g_mask == b_mask == 0, so every shift in the format is
++         * zero and the Rshift test below would always pick XBGR8888. The
++         * layout its UpdateRect_32() actually reads is byte 0 alpha, byte 1
++         * red, byte 2 green, byte 3 blue, which the GEKKO branch of
++         * 32bpp-xrgb8888.c plots. */
++        fmt = NSFB_FMT_XRGB8888;
++#else
+         if (sdl_fmt->Rshift == 0)
+             fmt = NSFB_FMT_XBGR8888;
+         else
+             fmt = NSFB_FMT_XRGB8888;
++#endif
+         break;
+ 
+     default:
+@@ -512,12 +878,56 @@ static int sdl_initialise(nsfb_t *nsfb)
      SDL_ShowCursor(SDL_DISABLE);
      SDL_EnableKeyRepeat(300, 50);
  
@@ -459,7 +522,7 @@ index 8a73581..ad0fdfd 100644
      SDL_Quit();
      return 0;
  }
-@@ -545,6 +945,25 @@ static bool sdl_input(nsfb_t *nsfb, nsfb_event_t *event, int timeout)
+@@ -545,6 +955,25 @@ static bool sdl_input(nsfb_t *nsfb, nsfb_event_t *event, int timeout)
  
      nsfb = nsfb; /* unused */
  

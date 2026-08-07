@@ -41,10 +41,31 @@ cp "$EXTRACT_DIR/opt/devkitpro/libogc/lib/wii/libwiisocket.a" "$PREFIX/lib/"
 # libogc 3.x gained inet_ntop/inet_pton after this package was published.
 # Remove the duplicate implementations while retaining getaddrinfo/select and
 # wiisocket's devoptab integration, which curl still needs.
+#
+# libogc keeps all five address-string helpers in one object (soc_util.o), so
+# pulling it in for inet_ntop/inet_pton drags inet_addr/inet_aton/inet_ntoa
+# along with it. Those have to go from libwiisocket as well or the link fails
+# with multiple definitions. They only convert between text and in_addr, so
+# either implementation is equivalent -- unlike the socket calls below, they
+# touch no file descriptor.
 "${DEVKITPPC:-/opt/devkitpro/devkitPPC}/bin/powerpc-eabi-ar" d \
-	"$PREFIX/lib/libwiisocket.a" inet_ntop.o inet_pton.o
+	"$PREFIX/lib/libwiisocket.a" inet_ntop.o inet_pton.o \
+	inet_addr.o inet_aton.o inet_ntoa.o
 "${DEVKITPPC:-/opt/devkitpro/devkitPPC}/bin/powerpc-eabi-ranlib" \
 	"$PREFIX/lib/libwiisocket.a"
+
+# The shipped libcurl.pc lists "-logc -lwiisocket" in that order. libogc 3.x
+# also defines socket/connect/send/recv/poll and 14 other BSD socket entry
+# points, so with -logc first the static linker satisfies libcurl's references
+# from libogc's raw IOS wrappers while select()/getaddrinfo()/close() still
+# come from libwiisocket and newlib's devoptab. The two do not share a file
+# descriptor space, so every fetch fails to connect. Put libwiisocket first so
+# it wins for all of the overlapping symbols; libogc keeps supplying
+# inet_ntop/inet_pton, which are deleted from libwiisocket above.
+for pc in "$PREFIX/lib/pkgconfig/libcurl.pc"; do
+	sed -i.bak 's/-logc -lwiisocket/-lwiisocket -logc/g' "$pc"
+	rm -f "$pc.bak"
+done
 
 CA_URL="https://raw.githubusercontent.com/AndrewPiroli/wii-curl/d9b21a24142c6bfbfff15cd4151ef154b9659c4e/sample-app/data/cacert.pem"
 curl -fL "$CA_URL" -o "$SCRIPT_DIR/cacert.pem"
