@@ -2,7 +2,7 @@
 <app version="1">
   <name>NetSurf Wii</name>
   <coder>quatric, cmyksoda</coder>
-  <version>1.1.0</version>
+  <version>1.2.0</version>
   <release_date>20261008</release_date>
   <short_description>NetSurf 3.12 Dev — Experimental</short_description>
   <long_description>Experimental Wii port of the NetSurf web browser using libnsfb, SDL, curl, mbedTLS, and libwupc.</long_description>
