@@ -101,7 +101,7 @@ Dolphin and needs testing on real hardware.
 - `wii-sdl`, `ppc-zlib`, `ppc-libpng`, `ppc-libjpeg-turbo`, `ppc-libwebp`,
   and `ppc-freetype`
 - Git, GNU Make, GNU flex, and a recent GNU bison
-- Licensed `FOT-RodinNTLGPro-M.otf` and `FOT-RodinNTLGPro-B.otf` files in
+- Licensed `FOT-RodinNTLGPro-DB.otf` and `FOT-RodinNTLGPro-B.otf` files in
   `~/Library/Fonts`, or another directory selected with `RODIN_FONT_DIR`
 
 ## Build

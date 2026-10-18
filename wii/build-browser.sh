@@ -12,7 +12,7 @@ HOST_BUILD=$(cc -dumpmachine 2>/dev/null || printf '%s' arm64-apple-darwin)
 HOST_TOOL_PREFIX="$SCRIPT_DIR/.deps/netsurf-workspace/inst-$HOST_BUILD"
 PACKAGE_DIR="$SCRIPT_DIR/dist/apps/netsurf"
 RODIN_FONT_DIR=${RODIN_FONT_DIR:-"$HOME/Library/Fonts"}
-RODIN_REGULAR_SOURCE=${RODIN_REGULAR_SOURCE:-"$RODIN_FONT_DIR/FOT-RodinNTLGPro-M.otf"}
+RODIN_REGULAR_SOURCE=${RODIN_REGULAR_SOURCE:-"$RODIN_FONT_DIR/FOT-RodinNTLGPro-DB.otf"}
 RODIN_BOLD_SOURCE=${RODIN_BOLD_SOURCE:-"$RODIN_FONT_DIR/FOT-RodinNTLGPro-B.otf"}
 
 . "$SCRIPT_DIR/env.sh"
@@ -102,9 +102,9 @@ done
 cp "$SOURCE_ROOT/frontends/framebuffer/res/en/Messages" \
 	"$PACKAGE_DIR/Messages"
 mkdir -p "$PACKAGE_DIR/fonts"
-cp "$RODIN_REGULAR_SOURCE" "$PACKAGE_DIR/fonts/RodinNTLG-M.otf"
+cp "$RODIN_REGULAR_SOURCE" "$PACKAGE_DIR/fonts/RodinNTLG-DB.otf"
 cp "$RODIN_BOLD_SOURCE" "$PACKAGE_DIR/fonts/RodinNTLG-B.otf"
-chmod 0644 "$PACKAGE_DIR/fonts/RodinNTLG-M.otf" \
+chmod 0644 "$PACKAGE_DIR/fonts/RodinNTLG-DB.otf" \
 	"$PACKAGE_DIR/fonts/RodinNTLG-B.otf"
 cp "$SCRIPT_DIR/fonts/BreeSerif-Regular.ttf" "$SCRIPT_DIR/fonts/BreeSerif-OFL.txt" \
 	"$PACKAGE_DIR/fonts/"
