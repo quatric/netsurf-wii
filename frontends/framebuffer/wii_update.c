@@ -11,6 +11,7 @@
 #include <stdbool.h>
 #include <gccore.h>
 #include <wiiuse/wpad.h>
+#include <input_wii.h>
 #include <ogc/lwp_watchdog.h>
 #include <wiiupdate.h>
 
@@ -22,25 +23,11 @@
 
 static bool started;
 
-/* Wii Remotes, Classic Controllers and GameCube pads folded onto A and B.
- * The browser's own input layer is not up yet. */
+/* Every controller libinput-wii knows, folded onto Wii Remote buttons. */
 static u32 buttons_down(void)
 {
-	u32 down = 0;
-	int i;
-
-	WPAD_ScanPads();
-	PAD_ScanPads();
-	for (i = 0; i < 4; i++) {
-		u32 w = WPAD_ButtonsDown(i);
-		u16 p = PAD_ButtonsDown(i);
-
-		if (w & (WPAD_BUTTON_A | WPAD_CLASSIC_BUTTON_A) || p & PAD_BUTTON_A)
-			down |= WPAD_BUTTON_A;
-		if (w & (WPAD_BUTTON_B | WPAD_CLASSIC_BUTTON_B) || p & PAD_BUTTON_B)
-			down |= WPAD_BUTTON_B;
-	}
-	return down;
+	INPUT_Update();
+	return INPUT_ButtonsDown();
 }
 
 static int elapsed_ms(u64 since)
@@ -113,8 +100,9 @@ void wii_update_prompt(void)
 
 	if (!started)
 		return;
-	WPAD_Init();
-	PAD_Init();
+	/* The same flags libnsfb's SDL surface uses: its own INPUT_InitEx()
+	 * later is then a no-op, and it still applies its button settings. */
+	INPUT_InitEx(INPUT_INIT_NO_KEYBOARD | INPUT_INIT_NO_MOUSE);
 
 	if (WIIUPDATE_State() == WIIUPDATE_CHECKING) {
 		u64 start = gettime();
