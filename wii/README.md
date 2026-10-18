@@ -113,6 +113,12 @@ cd /path/to/netsurf-wii
 ./wii/build-browser.sh -j8
 ```
 
+The build writes `wii/dist/netsurf.dol` and `wii/dist/netsurf-xz.dol`, the same
+program packed with [dolxz](https://github.com/FIX94/dolxz) into a self-extracting
+`.dol`, and packages the compressed one as `boot.dol`. Building dolxz needs a host
+C compiler and liblzma (Debian/Ubuntu: `liblzma-dev pkg-config`; macOS:
+`brew install xz`). `NO_DOLXZ=1 ./wii/build-browser.sh` packages the plain one.
+
 `build-browser.sh` uses cross-built NetSurf support libraries under
 `wii/.deps/netsurf-workspace/inst-powerpc-eabi` and GNU libiconv under
 `wii/.deps/iconv`. WebP comes from devkitPro, while libharu 2.4.6 is
