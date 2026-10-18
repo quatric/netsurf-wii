@@ -11,9 +11,18 @@
 # (Debian/Ubuntu: liblzma-dev; macOS: brew install xz).
 #
 # Set DOLXZ_SRC to an existing dolxz checkout to build without network access.
+#
+# Two changes against a plain build of upstream:
+# - The loader stubs are built with -fno-builtin -fno-tree-loop-distribute-patterns.
+#   Newer GCC (seen with devkitPPC r50, GCC 16.1) otherwise compiles the stubs' own memset
+#   into a branch to itself, and the compressed .dol hangs before decompressing.
+# - Section sizes in the output are rounded up to 32 bytes (the padding is zeros
+#   the loader never reads). Dolphin stops at a dialog for unaligned sections.
 set -eu
 
 DOLXZ_COMMIT=bf73653618facd06c1f5c98e81215d2298aefc40
+# Bump when the way dolxz is built here changes, so stale caches are rebuilt.
+DOLXZ_BUILD=2
 
 if [ $# -lt 2 ]; then
     echo "usage: $0 <in.dol> <out.dol> [dolxz options]" >&2
@@ -29,7 +38,7 @@ here=$(cd "$(dirname "$0")" && pwd)
 : "${DOLXZ_CACHE:=$(dirname "$here")/.dolxz}"
 : "${HOSTCC:=cc}"
 
-root=$DOLXZ_CACHE/$DOLXZ_COMMIT
+root=$DOLXZ_CACHE/$DOLXZ_COMMIT-$DOLXZ_BUILD
 tool=$root/dolxz
 
 build_dolxz() {
@@ -72,17 +81,75 @@ build_dolxz() {
 
     # shellcheck disable=SC2086
     $HOSTCC $hostflags "$src/bin2h/main.c" -o "$src/bin2h/bin2h"
+    nolib="-fno-builtin -fno-tree-loop-distribute-patterns"
     for sys in cube wii; do
         make -s -C "$src/loader/$sys" CC="${cross}gcc -m32" LD="${cross}ld" \
-            OBJCOPY="${cross}objcopy"
+            OBJCOPY="${cross}objcopy" \
+            CFLAGS="-Wall -W -O2 -ffreestanding $nolib -mno-eabi -mno-sdata -mcpu=750"
         for high in 0 1; do
             make -s -C "$src/loader" -f "Makefile.$sys" PREFIX="$cross" high=$high clean \
                 >/dev/null
-            make -s -C "$src/loader" -f "Makefile.$sys" PREFIX="$cross" high=$high
+            make -s -C "$src/loader" -f "Makefile.$sys" PREFIX="$cross" high=$high \
+                CFLAGS="\$(MACHDEP) -O2 -Wall $nolib"
         done
     done
     # shellcheck disable=SC2086
     $HOSTCC $hostflags $lzma_cflags "$src/main.c" -o "$root.tmp/dolxz" $lzma_libs
+    cat > "$root.tmp/dolpad.c" <<'PADEOF'
+/* Round each DOL section size up to 32 bytes where the file layout leaves room. */
+#include <stdio.h>
+#include <stdlib.h>
+
+static unsigned int rd(const unsigned char *p)
+{
+    return (unsigned int)p[0] << 24 | (unsigned int)p[1] << 16 | (unsigned int)p[2] << 8 | p[3];
+}
+
+static void wr(unsigned char *p, unsigned int v)
+{
+    p[0] = v >> 24;
+    p[1] = v >> 16;
+    p[2] = v >> 8;
+    p[3] = v;
+}
+
+int main(int argc, char **argv)
+{
+    unsigned char h[0x100];
+    unsigned int end = 0;
+    long size;
+    int i, j;
+    FILE *f;
+
+    if (argc != 2 || !(f = fopen(argv[1], "r+b")) || fread(h, 1, sizeof h, f) != sizeof h)
+        return 1;
+    fseek(f, 0, SEEK_END);
+    size = ftell(f);
+    for (i = 0; i < 18; i++)
+    {
+        unsigned int off = rd(h + i * 4), len = rd(h + 0x90 + i * 4);
+        unsigned int padded = (len + 31) & ~31u, next = 0xffffffffu;
+        if (!len)
+            continue;
+        for (j = 0; j < 18; j++)
+        {
+            unsigned int o = rd(h + j * 4);
+            if (j != i && rd(h + 0x90 + j * 4) && o > off && o < next)
+                next = o;
+        }
+        if (off + padded <= next)
+            wr(h + 0x90 + i * 4, len = padded);
+        if (off + len > end)
+            end = off + len;
+    }
+    fseek(f, 0, SEEK_SET);
+    fwrite(h, 1, sizeof h, f);
+    for (fseek(f, 0, SEEK_END); (unsigned long)size < end; size++)
+        fputc(0, f);
+    return fclose(f) != 0;
+}
+PADEOF
+    $HOSTCC -O2 "$root.tmp/dolpad.c" -o "$root.tmp/dolpad"
     cp "$src/LICENSE" "$root.tmp/LICENSE"
     rm -rf "$root"
     mv "$root.tmp" "$root"
@@ -95,3 +162,4 @@ fi
 
 mkdir -p "$(dirname "$out")"
 "$tool" "$in" "$out" -wii "$@"
+"$root/dolpad" "$out"
