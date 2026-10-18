@@ -53,8 +53,26 @@ export NETSURF_BUILD_NAME=quatric
 export NETSURF_BUILD_ROOT=netsurf-wii
 export HOSTNAME=wii-build
 
-BUILD_LIBPNG_CFLAGS=$(pkg-config --cflags libpng)
-BUILD_LIBPNG_LDFLAGS=$(pkg-config --libs libpng)
+# convert_image is a host tool, so it needs the host's libpng. devkitPro's
+# pkg-config comes first on PATH and PKG_CONFIG_LIBDIR now points at the Wii
+# libraries; GNU ld skips the PowerPC libpng it then names, but Apple's linker
+# refuses it. Ask the host's own pkg-config when there is one.
+HOST_PKG_CONFIG=
+for candidate in /opt/homebrew/bin/pkg-config /usr/local/bin/pkg-config \
+		/usr/bin/pkg-config; do
+	if [ -x "$candidate" ] &&
+			env -u PKG_CONFIG_LIBDIR "$candidate" --exists libpng; then
+		HOST_PKG_CONFIG=$candidate
+		break
+	fi
+done
+if [ -n "$HOST_PKG_CONFIG" ]; then
+	BUILD_LIBPNG_CFLAGS=$(env -u PKG_CONFIG_LIBDIR "$HOST_PKG_CONFIG" --cflags libpng)
+	BUILD_LIBPNG_LDFLAGS=$(env -u PKG_CONFIG_LIBDIR "$HOST_PKG_CONFIG" --libs libpng)
+else
+	BUILD_LIBPNG_CFLAGS=$(pkg-config --cflags libpng)
+	BUILD_LIBPNG_LDFLAGS=$(pkg-config --libs libpng)
+fi
 
 make -C "$SOURCE_ROOT" \
 	TARGET=framebuffer HOST=powerpc-eabi \

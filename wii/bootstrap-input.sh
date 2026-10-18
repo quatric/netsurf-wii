@@ -20,6 +20,10 @@ if git -C "$SOURCE_DIR" apply --check \
 		"$SCRIPT_DIR/patches/libwupc-libogc-3.patch"
 fi
 
+# The repository ships a prebuilt, unpatched lib/libwupc.a. Make with
+# one-second timestamps (macOS's make 3.81) can take it as newer than the
+# freshly compiled object, so remove it to always build from the patched source.
+rm -f "$SOURCE_DIR/lib/libwupc.a"
 make -C "$SOURCE_DIR"
 mkdir -p "$PREFIX/include/wupc" "$PREFIX/lib"
 cp "$SOURCE_DIR/include/wupc/wupc.h" "$PREFIX/include/wupc/wupc.h"
