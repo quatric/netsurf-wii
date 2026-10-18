@@ -32,7 +32,8 @@ jobs:
         run: |
           apt-get update
           apt-get install -y --no-install-recommends \
-            bison flex fonts-dejavu-core gperf libpng-dev perl
+            bison flex fonts-dejavu-core gperf libpng-dev perl \
+            gcc libc6-dev liblzma-dev pkg-config curl ca-certificates
           rm -rf /var/lib/apt/lists/*
 
       - name: Verify pinned Wii toolchain
@@ -62,6 +63,9 @@ jobs:
       - name: Verify package
         run: |
           test -s wii/dist/apps/netsurf/boot.dol
+          test -s wii/dist/netsurf.dol
+          cmp wii/dist/netsurf-xz.dol wii/dist/apps/netsurf/boot.dol
+          test "$(wc -c < wii/dist/netsurf-xz.dol)" -lt "$(wc -c < wii/dist/netsurf.dol)"
           grep -Eq '<coder>quatric(,|<)' wii/dist/apps/netsurf/meta.xml
           "$DEVKITPPC/bin/powerpc-eabi-nm" nsfb | grep -Fq WUPC_Init
           # WPAD_Data, not WPAD_IR: SDL-wii's own event pump reads channel
@@ -71,9 +75,9 @@ jobs:
           # handling. WPAD_Data is what actually proves IR support is linked.
           "$DEVKITPPC/bin/powerpc-eabi-nm" nsfb | grep -Fq WPAD_Data
           "$DEVKITPPC/bin/powerpc-eabi-nm" nsfb | grep -Fq WPAD_ScanPads
-          if strings wii/dist/apps/netsurf/boot.dol | \
+          if strings wii/dist/netsurf.dol | \
               grep -Eiq '/home/runner|/github/workspace'; then
-            echo "Unexpected build provenance in boot.dol" >&2
+            echo "Unexpected build provenance in netsurf.dol" >&2
             exit 1
           fi
 

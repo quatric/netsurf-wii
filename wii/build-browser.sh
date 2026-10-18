@@ -85,7 +85,17 @@ make -C "$SOURCE_ROOT" \
 	"$@"
 
 mkdir -p "$PACKAGE_DIR"
-elf2dol "$SOURCE_ROOT/nsfb" "$PACKAGE_DIR/boot.dol"
+# Keep the plain .dol next to the package, and ship the self-extracting
+# xz-compressed copy (FIX94's dolxz, see wii/dolxz.sh) as boot.dol unless
+# NO_DOLXZ=1.
+elf2dol "$SOURCE_ROOT/nsfb" "$SCRIPT_DIR/dist/netsurf.dol"
+if [ "${NO_DOLXZ:-0}" = 1 ]; then
+	cp "$SCRIPT_DIR/dist/netsurf.dol" "$PACKAGE_DIR/boot.dol"
+else
+	DOLXZ_CACHE=${DOLXZ_CACHE:-"$SCRIPT_DIR/.deps/dolxz"} \
+		sh "$SCRIPT_DIR/dolxz.sh" "$SCRIPT_DIR/dist/netsurf.dol" "$SCRIPT_DIR/dist/netsurf-xz.dol"
+	cp "$SCRIPT_DIR/dist/netsurf-xz.dol" "$PACKAGE_DIR/boot.dol"
+fi
 if ! grep -Eq '<coder>quatric(,|<)' "$SCRIPT_DIR/meta.xml"; then
 	echo "Refusing to package meta.xml without the quatric coder credit" >&2
 	exit 1
