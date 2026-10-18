@@ -27,6 +27,11 @@ sed -i.bak 's#$(shell /bin/which $(CC__))#$(shell command -v $(CC__))#' \
 if git -C "$LIBNSFB" apply --check \
 		"$SCRIPT_DIR/patches/libnsfb-wii-endian.patch" 2>/dev/null; then
 	git -C "$LIBNSFB" apply "$SCRIPT_DIR/patches/libnsfb-wii-endian.patch"
+elif ! git -C "$LIBNSFB" apply --reverse --check \
+		"$SCRIPT_DIR/patches/libnsfb-wii-endian.patch" 2>/dev/null; then
+	echo "$LIBNSFB does not match patches/libnsfb-wii-endian.patch." >&2
+	echo "Regenerate the patch from it, or reset it to upstream." >&2
+	exit 1
 fi
 
 WII_CFLAGS="-DGEKKO -D_BSD_SOURCE -D_DEFAULT_SOURCE \

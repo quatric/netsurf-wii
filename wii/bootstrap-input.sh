@@ -5,6 +5,8 @@ SCRIPT_DIR=$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)
 SOURCE_DIR="$SCRIPT_DIR/.deps/input/libwupc"
 PREFIX="$SCRIPT_DIR/.deps/input/prefix"
 REVISION=24145b35dbc2c1950f6f48079d577acc7efb0c4d
+LIBINPUT_DIR="$SCRIPT_DIR/.deps/input/libinput-wii"
+LIBINPUT_REVISION=226df940c34d255e15d500da4bfae52d94d8bd82
 
 . "$SCRIPT_DIR/env.sh"
 
@@ -29,4 +31,19 @@ mkdir -p "$PREFIX/include/wupc" "$PREFIX/lib"
 cp "$SOURCE_DIR/include/wupc/wupc.h" "$PREFIX/include/wupc/wupc.h"
 cp "$SOURCE_DIR/lib/libwupc.a" "$PREFIX/lib/libwupc.a"
 
-echo "Installed Wii U Pro Controller support in $PREFIX"
+# libinput-wii: controller scanning and mapping for the libnsfb patch, built
+# against the libwupc just installed.
+if [ ! -d "$LIBINPUT_DIR/.git" ]; then
+	mkdir -p "$(dirname -- "$LIBINPUT_DIR")"
+	git clone https://github.com/quatric/libinput-wii.git "$LIBINPUT_DIR"
+fi
+if [ "$(git -C "$LIBINPUT_DIR" rev-parse HEAD)" != "$LIBINPUT_REVISION" ]; then
+	git -C "$LIBINPUT_DIR" fetch origin
+	git -C "$LIBINPUT_DIR" checkout --detach "$LIBINPUT_REVISION"
+	make -C "$LIBINPUT_DIR" clean
+fi
+make -C "$LIBINPUT_DIR" WITH_WUPC=1 PORTLIBS="$PREFIX"
+cp "$LIBINPUT_DIR/lib/libinput-wii.a" "$PREFIX/lib/libinput-wii.a"
+cp "$LIBINPUT_DIR/include/input_wii.h" "$PREFIX/include/input_wii.h"
+
+echo "Installed Wii U Pro Controller support and libinput-wii in $PREFIX"

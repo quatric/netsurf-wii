@@ -54,6 +54,11 @@ if git -C "$WORKSPACE/libnsfb" apply --check \
 		"$SCRIPT_DIR/patches/libnsfb-wii-endian.patch" 2>/dev/null; then
 	git -C "$WORKSPACE/libnsfb" apply \
 		"$SCRIPT_DIR/patches/libnsfb-wii-endian.patch"
+elif ! git -C "$WORKSPACE/libnsfb" apply --reverse --check \
+		"$SCRIPT_DIR/patches/libnsfb-wii-endian.patch" 2>/dev/null; then
+	echo "$WORKSPACE/libnsfb does not match patches/libnsfb-wii-endian.patch." >&2
+	echo "Regenerate the patch from it, or reset it to upstream." >&2
+	exit 1
 fi
 
 ICONV_ARCHIVE="$DEPS_ROOT/downloads/libiconv-1.19.tar.gz"

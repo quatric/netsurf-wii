@@ -55,7 +55,7 @@ ifeq ($(NETSURF_WII),YES)
   CFLAGS += $(shell $(PKG_CONFIG) --cflags libnsfb) -Dmain=SDL_main
   LDFLAGS += -Wl,--whole-archive -lnsfb -Wl,--no-whole-archive
   LDFLAGS += $(shell $(PKG_CONFIG) --libs-only-L libnsfb)
-  LDFLAGS += -lSDLmain -lSDL -laesnd -lwiiuse -lwupc -lbte -lwiikeyboard \
+  LDFLAGS += -lSDLmain -lSDL -linput-wii -laesnd -lwiiuse -lwupc -lbte -lwiikeyboard \
 	-lfat -lopengx -logc -lm
   LDFLAGS += -Wl,--wrap,wiiuse_accept -Wl,--wrap,wiiuse_connect
   LDFLAGS += -Wl,--wrap,KEYBOARD_GetEvent -Wl,--wrap,MOUSE_GetEvent

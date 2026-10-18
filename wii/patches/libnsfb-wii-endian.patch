@@ -88,26 +88,27 @@ index 28e6673..04a8cde 100644
  /**
   * convert a 32bpp big endian pixel value to netsurf colour
 diff --git a/src/surface/sdl.c b/src/surface/sdl.c
-index 8a73581..e5ac10f 100644
+index 8a73581..bdcf6f0 100644
 --- a/src/surface/sdl.c
 +++ b/src/surface/sdl.c
-@@ -10,6 +10,15 @@
+@@ -10,6 +10,16 @@
  #include <stdlib.h>
  #include <SDL/SDL.h>
  
 +#ifdef GEKKO
 +#include <math.h>
++#include <string.h>
 +#include <gccore.h>
 +#include <ogc/usbmouse.h>
 +#include <wiiuse/wpad.h>
 +#include <wiikeyboard/keyboard.h>
-+#include <wupc/wupc.h>
++#include <input_wii.h>
 +#endif
 +
  #include "libnsfb.h"
  #include "libnsfb_event.h"
  #include "libnsfb_plot.h"
-@@ -21,6 +30,651 @@
+@@ -21,6 +31,575 @@
  #include "plot.h"
  #include "cursor.h"
  
@@ -123,8 +124,12 @@ index 8a73581..e5ac10f 100644
 + *
 + * What SDL-wii does not cover, and what is still handled here, is the D-pad,
 + * Plus/Minus, 1/2 and Home on any channel, the buttons of remotes two to four,
-+ * expansion controllers, Wii U Pro Controllers via libwupc, GameCube pads, and
-+ * USB keyboards and mice. */
++ * expansion controllers, Wii U Pro Controllers, GameCube pads, and USB
++ * keyboards and mice. libinput-wii scans the controllers and folds them into
++ * one Wii Remote button mask and two sticks. The USB keyboard and mouse stay
++ * on libogc's KEYBOARD_ and MOUSE_ drivers below, which SDL-wii's main()
++ * already started: the keyboard driver applies the keyboard layout, and a
++ * second driver on the same devices would compete for their reports. */
 +
 +/* Minimum interval between hardware polls, in milliseconds. Rescanning on
 + * every call meant a WPAD scan and an SI transfer for each iteration of
@@ -137,7 +142,6 @@ index 8a73581..e5ac10f 100644
 +#define WII_STICK_SCROLL_SPEED 0.12f
 +/* Fraction of stick travel ignored around the center. */
 +#define WII_STICK_DEADZONE 0.2f
-+#define WII_DEGREES_TO_RADIANS (3.14159265f / 180.0f)
 +
 +#define WII_KEY_REPEAT_DELAY_MS 400
 +#define WII_KEY_REPEAT_INTERVAL_MS 40
@@ -399,85 +403,12 @@ index 8a73581..e5ac10f 100644
 +            WII_EVENT_QUEUE_SIZE - WII_EVENT_QUEUE_REPORT_SPACE);
 +}
 +
-+static u32 wii_canonical_buttons(u32 pressed)
-+{
-+    if (pressed & (WPAD_CLASSIC_BUTTON_ZR | WPAD_CLASSIC_BUTTON_PLUS))
-+        pressed |= WPAD_BUTTON_PLUS;
-+    if (pressed & (WPAD_CLASSIC_BUTTON_ZL | WPAD_CLASSIC_BUTTON_MINUS))
-+        pressed |= WPAD_BUTTON_MINUS;
-+    if (pressed & WPAD_CLASSIC_BUTTON_A)
-+        pressed |= WPAD_BUTTON_A;
-+    if (pressed & WPAD_CLASSIC_BUTTON_B)
-+        pressed |= WPAD_BUTTON_B;
-+    if (pressed & WPAD_CLASSIC_BUTTON_X)
-+        pressed |= WPAD_BUTTON_2;
-+    if (pressed & WPAD_CLASSIC_BUTTON_Y)
-+        pressed |= WPAD_BUTTON_1;
-+    if (pressed & WPAD_CLASSIC_BUTTON_HOME)
-+        pressed |= WPAD_BUTTON_HOME;
-+    if (pressed & WPAD_CLASSIC_BUTTON_UP)
-+        pressed |= WPAD_BUTTON_UP;
-+    if (pressed & WPAD_CLASSIC_BUTTON_DOWN)
-+        pressed |= WPAD_BUTTON_DOWN;
-+    if (pressed & WPAD_CLASSIC_BUTTON_LEFT)
-+        pressed |= WPAD_BUTTON_LEFT;
-+    if (pressed & WPAD_CLASSIC_BUTTON_RIGHT)
-+        pressed |= WPAD_BUTTON_RIGHT;
-+    return pressed;
-+}
-+
 +static u32 wii_controller_buttons(void)
 +{
-+    u32 pressed = 0;
-+    u32 gcpressed = 0;
-+    unsigned int channel;
-+
-+    WUPC_UpdateButtonStats();
-+    for (channel = 0; channel < 4; channel++)
-+        pressed |= WUPC_ButtonsHeld(channel);
-+    pressed = wii_canonical_buttons(pressed);
-+
-+    if (pressed != 0)
-+        return pressed;
-+
-+    for (channel = 0; channel < 4; channel++) {
-+        u32 held = WPAD_ButtonsHeld(channel);
-+
-+        /* SDL already reports channel zero's own A and B as mouse buttons;
-+         * a Classic Controller's A and B on that channel are still ours. */
-+        if (channel == 0)
-+            held &= ~(WPAD_BUTTON_A | WPAD_BUTTON_B);
-+        pressed |= wii_canonical_buttons(held);
-+    }
-+
-+    if (pressed != 0)
-+        return pressed;
-+
-+    for (channel = 0; channel < 4; channel++)
-+        gcpressed |= PAD_ButtonsHeld(channel);
-+    if (gcpressed & PAD_TRIGGER_R)
-+        pressed |= WPAD_BUTTON_PLUS;
-+    if (gcpressed & PAD_TRIGGER_L)
-+        pressed |= WPAD_BUTTON_MINUS;
-+    if (gcpressed & PAD_BUTTON_A)
-+        pressed |= WPAD_BUTTON_A;
-+    if (gcpressed & PAD_BUTTON_B)
-+        pressed |= WPAD_BUTTON_B;
-+    if (gcpressed & PAD_BUTTON_X)
-+        pressed |= WPAD_BUTTON_2;
-+    if (gcpressed & PAD_BUTTON_Y)
-+        pressed |= WPAD_BUTTON_1;
-+    if (gcpressed & PAD_BUTTON_MENU)
-+        pressed |= WPAD_BUTTON_HOME;
-+    if (gcpressed & PAD_BUTTON_UP)
-+        pressed |= WPAD_BUTTON_UP;
-+    if (gcpressed & PAD_BUTTON_DOWN)
-+        pressed |= WPAD_BUTTON_DOWN;
-+    if (gcpressed & PAD_BUTTON_LEFT)
-+        pressed |= WPAD_BUTTON_LEFT;
-+    if (gcpressed & PAD_BUTTON_RIGHT)
-+        pressed |= WPAD_BUTTON_RIGHT;
-+    return pressed;
++    /* Channel zero's own A and B are left out at initialisation: SDL already
++     * reports them as mouse buttons. A Classic Controller's A and B on that
++     * channel are still ours. */
++    return INPUT_PadsHeld();
 +}
 +
 +static bool wii_controller_event(nsfb_event_t *event)
@@ -557,15 +488,16 @@ index 8a73581..e5ac10f 100644
 +    return (v < 0.0f) ? -(magnitude * magnitude) : magnitude * magnitude;
 +}
 +
-+/* wiiuse measures a stick's angle clockwise from straight up. */
-+static float wii_joystick_x(const joystick_t *js)
++/* Rescale an unclamped libinput-wii stick (its own ranges, y up) to the
++ * divisors this file has always used; callers flip y to grow downward and
++ * wii_stick_curve() clamps each axis, as before. */
++static float wii_stick_scale(const char *source, int which)
 +{
-+    return js->mag * sinf(js->ang * WII_DEGREES_TO_RADIANS);
-+}
-+
-+static float wii_joystick_y(const joystick_t *js)
-+{
-+    return -js->mag * cosf(js->ang * WII_DEGREES_TO_RADIANS);
++    if (strcmp(source, "GameCube") == 0)
++        return (which == INPUT_STICK_LEFT) ? 70.0f / 80.0f : 60.0f / 80.0f;
++    if (strcmp(source, "Wii U Pro") == 0)
++        return 900.0f / 1024.0f;
++    return 1.0f;
 +}
 +
 +/* The first stick of a GameCube pad, Classic Controller or Wii U Pro
@@ -576,32 +508,26 @@ index 8a73581..e5ac10f 100644
 +    float px = 0.0f;
 +    float py = 0.0f;
 +    float sy = 0.0f;
-+    unsigned int channel;
++    float x;
++    float y;
++    float k;
++    const char *source;
 +    int dx;
 +    int dy;
 +
-+    for (channel = 0; channel < 4; channel++) {
-+        WPADData *wd = WPAD_Data(channel);
-+
-+        px += PAD_StickX(channel) / 80.0f;
-+        py -= PAD_StickY(channel) / 80.0f;
-+        sy -= PAD_SubStickY(channel) / 80.0f;
-+
-+        if (WUPC_Data(channel) != NULL) {
-+            px += WUPC_lStickX(channel) / 1024.0f;
-+            py -= WUPC_lStickY(channel) / 1024.0f;
-+            sy -= WUPC_rStickY(channel) / 1024.0f;
++    /* One device per stick (the strongest); a Nunchuk's stick scrolls. */
++    if (INPUT_StickRaw(INPUT_STICK_LEFT, &x, &y, &source) > 0.0f) {
++        k = wii_stick_scale(source, INPUT_STICK_LEFT);
++        if (strcmp(source, "Nunchuk") == 0) {
++            sy = -y * k;
++        } else {
++            px = x * k;
++            py = -y * k;
 +        }
-+
-+        if (wd == NULL || wd->err != WPAD_ERR_NONE)
-+            continue;
-+        if (wd->exp.type == WPAD_EXP_CLASSIC) {
-+            px += wii_joystick_x(&wd->exp.classic.ljs);
-+            py += wii_joystick_y(&wd->exp.classic.ljs);
-+            sy += wii_joystick_y(&wd->exp.classic.rjs);
-+        } else if (wd->exp.type == WPAD_EXP_NUNCHUK) {
-+            sy += wii_joystick_y(&wd->exp.nunchuk.js);
-+        }
++    }
++    if (INPUT_StickRaw(INPUT_STICK_RIGHT, &x, &y, &source) > 0.0f) {
++        k = wii_stick_scale(source, INPUT_STICK_RIGHT);
++        sy += -y * k;
 +    }
 +
 +    px = wii_stick_curve(px);
@@ -639,9 +565,9 @@ index 8a73581..e5ac10f 100644
 + * Refresh the cached controller state, at most once every
 + * WII_POLL_INTERVAL_MS.
 + *
-+ * WPAD_ScanPads() is what keeps SDL-wii's own pointer and mouse button
-+ * handling supplied with fresh data, so it has to happen here whether or not
-+ * this file has any use for the result.
++ * INPUT_Update() calls WPAD_ScanPads(), which is what keeps SDL-wii's own
++ * pointer and mouse button handling supplied with fresh data, so it has to
++ * happen here whether or not this file has any use for the result.
 + *
 + * \return true when there may be an unreported button change to emit.
 + */
@@ -658,8 +584,7 @@ index 8a73581..e5ac10f 100644
 +
 +    wii_last_poll_ticks = now;
 +
-+    WPAD_ScanPads();
-+    PAD_ScanPads();
++    INPUT_Update();
 +
 +    wii_polled_buttons = wii_controller_buttons();
 +    wii_polled_valid = true;
@@ -759,7 +684,7 @@ index 8a73581..e5ac10f 100644
  enum nsfb_key_code_e sdl_nsfb_map[] = {
      NSFB_KEY_UNKNOWN,
      NSFB_KEY_UNKNOWN,
-@@ -406,7 +1060,7 @@ sdlcopy(nsfb_t *nsfb, nsfb_bbox_t *srcbox, nsfb_bbox_t *dstbox)
+@@ -406,7 +985,7 @@ sdlcopy(nsfb_t *nsfb, nsfb_bbox_t *srcbox, nsfb_bbox_t *dstbox)
          nsfb_cursor_plot(nsfb, cursor);
      }
  
@@ -768,14 +693,18 @@ index 8a73581..e5ac10f 100644
  
      return true;
  
-@@ -458,11 +1112,27 @@ static int sdl_initialise(nsfb_t *nsfb)
+@@ -458,11 +1037,31 @@ static int sdl_initialise(nsfb_t *nsfb)
          return -1;
  
      /* initialise SDL library */
 +#ifdef GEKKO
-+    PAD_Init();
-+    WPAD_Init();
-+    WUPC_Init();
++    /* Controllers only; the USB keyboard and mouse use libogc's drivers
++     * below. Keep the IR pointer format: SDL-wii's main() asked for it on
++     * every channel and still reads channel zero's pointer. */
++    INPUT_InitEx(INPUT_INIT_NO_KEYBOARD | INPUT_INIT_NO_MOUSE);
++    INPUT_IgnoreWiimoteButtons(0, WPAD_BUTTON_A | WPAD_BUTTON_B);
++    /* GameCube Z has never done anything here. */
++    INPUT_GameCubeMapSet(PAD_TRIGGER_Z, 0);
 +    /* Both drivers poll for later device hot-plugging on their own threads. */
 +    wii_usb_keyboard_ready = KEYBOARD_Init(NULL) == 0;
 +    wii_usb_mouse_ready = MOUSE_Init() == 0;
@@ -787,7 +716,7 @@ index 8a73581..e5ac10f 100644
 +            MOUSE_Deinit();
 +        if (wii_usb_keyboard_ready)
 +            KEYBOARD_Deinit();
-+        WUPC_Shutdown();
++        INPUT_Shutdown();
 +#endif
          return -1;
      }
@@ -796,7 +725,7 @@ index 8a73581..e5ac10f 100644
      sdl_screen = SDL_SetVideoMode(nsfb->width,
                                    nsfb->height,
                                    nsfb->bpp,
-@@ -478,10 +1148,20 @@ static int sdl_initialise(nsfb_t *nsfb)
+@@ -478,10 +1077,20 @@ static int sdl_initialise(nsfb_t *nsfb)
  
      switch (sdl_fmt->BitsPerPixel) {
      case 32:
@@ -817,7 +746,7 @@ index 8a73581..e5ac10f 100644
          break;
  
      default:
-@@ -512,12 +1192,29 @@ static int sdl_initialise(nsfb_t *nsfb)
+@@ -512,13 +1121,33 @@ static int sdl_initialise(nsfb_t *nsfb)
      SDL_ShowCursor(SDL_DISABLE);
      SDL_EnableKeyRepeat(300, 50);
  
@@ -842,12 +771,16 @@ index 8a73581..e5ac10f 100644
 +        KEYBOARD_Deinit();
 +        wii_usb_keyboard_ready = false;
 +    }
-+    WUPC_Shutdown();
 +#endif
      SDL_Quit();
++#ifdef GEKKO
++    /* After SDL is done with the controllers; this also shuts WPAD down. */
++    INPUT_Shutdown();
++#endif
      return 0;
  }
-@@ -545,6 +1242,28 @@ static bool sdl_input(nsfb_t *nsfb, nsfb_event_t *event, int timeout)
+ 
+@@ -545,6 +1174,28 @@ static bool sdl_input(nsfb_t *nsfb, nsfb_event_t *event, int timeout)
  
      nsfb = nsfb; /* unused */
  
@@ -876,7 +809,7 @@ index 8a73581..e5ac10f 100644
      if (timeout == 0) {
          got_event = SDL_PollEvent(&sdlevent);
      } else {
-@@ -605,6 +1324,10 @@ static bool sdl_input(nsfb_t *nsfb, nsfb_event_t *event, int timeout)
+@@ -605,6 +1256,10 @@ static bool sdl_input(nsfb_t *nsfb, nsfb_event_t *event, int timeout)
  	case SDL_BUTTON_WHEELDOWN:
  	    event->value.keycode = NSFB_KEY_MOUSE_5;
  	    break;
@@ -887,7 +820,7 @@ index 8a73581..e5ac10f 100644
  	}
  	break;
  
-@@ -632,6 +1355,12 @@ static bool sdl_input(nsfb_t *nsfb, nsfb_event_t *event, int timeout)
+@@ -632,6 +1287,12 @@ static bool sdl_input(nsfb_t *nsfb, nsfb_event_t *event, int timeout)
  	case SDL_BUTTON_WHEELDOWN:
  	    event->value.keycode = NSFB_KEY_MOUSE_5;
  	    break;
@@ -900,7 +833,7 @@ index 8a73581..e5ac10f 100644
  	}
  	break;
  
-@@ -702,11 +1431,11 @@ sdl_cursor(nsfb_t *nsfb, struct nsfb_cursor_s *cursor)
+@@ -702,11 +1363,11 @@ sdl_cursor(nsfb_t *nsfb, struct nsfb_cursor_s *cursor)
  
          nsfb_cursor_plot(nsfb, cursor);
  
@@ -917,7 +850,7 @@ index 8a73581..e5ac10f 100644
  
  
      }
-@@ -724,11 +1453,11 @@ static int sdl_update(nsfb_t *nsfb, nsfb_bbox_t *box)
+@@ -724,11 +1385,11 @@ static int sdl_update(nsfb_t *nsfb, nsfb_bbox_t *box)
          nsfb_cursor_plot(nsfb, cursor);
      }
  

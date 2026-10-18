@@ -18,7 +18,7 @@ CFLAGS := -g -O2 -Wall -Wextra -Werror $(MACHDEP) $(INCLUDE)
 LDFLAGS := -g $(MACHDEP) -Wl,-Map,$(notdir $@).map \
 	-Wl,--wrap,wiiuse_accept -Wl,--wrap,wiiuse_connect \
 	-Wl,--wrap,KEYBOARD_GetEvent -Wl,--wrap,MOUSE_GetEvent
-LIBS := -Wl,--whole-archive -lnsfb -Wl,--no-whole-archive \
+LIBS := -Wl,--whole-archive -lnsfb -Wl,--no-whole-archive -linput-wii \
 	-lcurl -lmbedtls -lmbedx509 -lmbedcrypto -lz -lwiisocket \
 	-lSDLmain -lSDL -laesnd -lwiiuse -lwupc -lbte -lwiikeyboard -lfat \
 	-lopengx -logc -lm

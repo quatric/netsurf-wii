@@ -32,6 +32,8 @@ for required in \
 	"$OPTIONAL_PREFIX/lib/libhpdf.a" \
 	"$INPUT_PREFIX/lib/libwupc.a" \
 	"$INPUT_PREFIX/include/wupc/wupc.h" \
+	"$INPUT_PREFIX/lib/libinput-wii.a" \
+	"$INPUT_PREFIX/include/input_wii.h" \
 	"$HOST_TOOL_PREFIX/bin/nsgenbind" \
 	"$RODIN_REGULAR_SOURCE" \
 	"$RODIN_BOLD_SOURCE" \

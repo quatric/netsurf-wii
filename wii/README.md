@@ -118,7 +118,8 @@ cd /path/to/netsurf-wii
 `wii/.deps/iconv`. WebP comes from devkitPro, while libharu 2.4.6 is
 cross-built under `wii/.deps/optional/prefix`.
 The pinned FIX94 libwupc source is adapted to current libogc and installed
-under `wii/.deps/input/prefix` by `bootstrap-input.sh`.
+under `wii/.deps/input/prefix` by `bootstrap-input.sh`, together with a pinned
+[libinput-wii](https://github.com/quatric/libinput-wii) built against it.
 `bootstrap-browser-deps.sh` creates the local prefixes. They are intentionally
 untracked. The
 rw-r-r-0644 packages are also extracted locally because installing the older
@@ -174,10 +175,16 @@ NetSurf fetcher -> libcurl -> libogc BSD sockets -> Wii network interface
 - Wii Remote channel zero's IR pointer and its A and B buttons are handled by
   SDL-wii's own event pump, which already emits absolute mouse motion and left
   and right mouse buttons for them. The `libnsfb` patch deliberately does not
-  synthesise those a second time. It does call `WPAD_ScanPads()`, because that
-  is what keeps SDL's handling supplied with fresh data, and it rate limits
-  every hardware poll to 16 ms. Remotes two to four contribute their buttons
-  through the patch's own path. The patch must not call `WPAD_SetVRes()`:
+  synthesise those a second time: it starts libinput-wii with
+  `INPUT_IgnoreWiimoteButtons(0, A | B)`. Its `INPUT_Update()` calls
+  `WPAD_ScanPads()`, which is what keeps SDL's handling supplied with fresh
+  data, and the patch rate limits every hardware poll to 16 ms. Remotes two to
+  four contribute their buttons through libinput-wii. libinput-wii's
+  initialisation repeats what SDL-wii's `main()` already did (IR data format
+  and a 640x480 range on every channel) before `SDL_SetVideoMode()` widens
+  channel zero's range, so it must keep the IR format (no
+  `INPUT_INIT_NO_POINTER`) and the patch must never call
+  `INPUT_SetScreenSize()`. The patch must not call `WPAD_SetVRes()`:
   SDL-wii gives channel zero an IR range 1.25 times the screen and subtracts
   that margin itself, so a 640x480 range left the pointer unable to pass
   x=552 or y=398, which put the on-screen keyboard's bottom row out of reach.
@@ -215,9 +222,15 @@ NetSurf fetcher -> libcurl -> libogc BSD sockets -> Wii network interface
   report carries a wheel step other than -1, 0 or 1, which a fast flick can
   do; unplugging and reconnecting the mouse brings it back. This is in
   `libogc/usbmouse.c` (`_mouse_event_cb`) and is best fixed there.
-- Wii U Pro Controllers are handled through libwupc. GlowWii-style
-  four-channel aggregation gives them precedence over Wii Remote buttons and
-  GameCube pads; their mapping is listed under Controls.
+- Controllers (Wii Remotes two to four, Nunchuk, Classic Controller, GameCube
+  pads, and Wii U Pro Controllers through libwupc) are read through
+  libinput-wii, which merges every device into one button mask; their mapping
+  is listed under Controls. The USB keyboard and mouse stay on libogc's
+  drivers, which SDL-wii's `main()` starts: the keyboard driver applies the
+  keyboard layout, and libinput-wii is started without its own keyboard and
+  mouse so the devices have one reader each. Sticks use
+  `INPUT_StickRaw()` scaled back to the divisors the patch always used
+  (GameCube 80, Wii U Pro 1024); the strongest stick on each side wins.
 - WebP image decoding is enabled; JPEG XL is excluded to keep the browser and
   its dependency set smaller. PDF export uses libharu and a fixed output path;
   a Wii-native filename picker has not been implemented.
