@@ -47,9 +47,22 @@ done
 
 cp "$SCRIPT_DIR/Makefile.config.wii" "$SOURCE_ROOT/Makefile.config"
 
+# Update check (wii/libwiiupdate, a submodule). The version it compares with
+# the GitHub releases is the tag when CI builds one, else meta.xml's.
+UPDATE_DIR="$SCRIPT_DIR/libwiiupdate"
+if [ ! -f "$UPDATE_DIR/Makefile" ]; then
+	echo "Missing wii/libwiiupdate: run git submodule update --init" >&2
+	exit 1
+fi
+make -C "$UPDATE_DIR"
+case "${GITHUB_REF:-}" in
+refs/tags/*) APP_VERSION=$GITHUB_REF_NAME ;;
+*) APP_VERSION=$(sed -n 's:.*<version>\(.*\)</version>.*:\1:p' "$SCRIPT_DIR/meta.xml") ;;
+esac
+
 export PKG_CONFIG_LIBDIR="$OPTIONAL_PREFIX/lib/pkgconfig:$SUPPORT_PREFIX/lib/pkgconfig:$NETWORK_PREFIX/lib/pkgconfig:$DEVKITPRO/portlibs/wii/lib/pkgconfig:$DEVKITPRO/portlibs/ppc/lib/pkgconfig"
-export CFLAGS="-DBUILDING_LIBICONV=0 -DGEKKO -I$INPUT_PREFIX/include -I$OPTIONAL_PREFIX/include -I$ICONV_PREFIX/include -I$NETWORK_PREFIX/include -I$SUPPORT_PREFIX/include -I$DEVKITPRO/libogc/include -I$DEVKITPRO/portlibs/wii/include -I$DEVKITPRO/portlibs/ppc/include -mrvl -mcpu=750 -meabi -mhard-float"
-export LDFLAGS="-L$INPUT_PREFIX/lib -L$OPTIONAL_PREFIX/lib -L$ICONV_PREFIX/lib -L$NETWORK_PREFIX/lib -L$SUPPORT_PREFIX/lib -L$DEVKITPRO/libogc/lib/wii -L$DEVKITPRO/portlibs/wii/lib -L$DEVKITPRO/portlibs/ppc/lib -mrvl -mcpu=750 -meabi -mhard-float"
+export CFLAGS="-DBUILDING_LIBICONV=0 -DGEKKO -DAPP_VERSION=\\\"$APP_VERSION\\\" -I$UPDATE_DIR/include -I$INPUT_PREFIX/include -I$OPTIONAL_PREFIX/include -I$ICONV_PREFIX/include -I$NETWORK_PREFIX/include -I$SUPPORT_PREFIX/include -I$DEVKITPRO/libogc/include -I$DEVKITPRO/portlibs/wii/include -I$DEVKITPRO/portlibs/ppc/include -mrvl -mcpu=750 -meabi -mhard-float"
+export LDFLAGS="-L$UPDATE_DIR/lib -lwiiupdate -L$INPUT_PREFIX/lib -L$OPTIONAL_PREFIX/lib -L$ICONV_PREFIX/lib -L$NETWORK_PREFIX/lib -L$SUPPORT_PREFIX/lib -L$DEVKITPRO/libogc/lib/wii -L$DEVKITPRO/portlibs/wii/lib -L$DEVKITPRO/portlibs/ppc/lib -mrvl -mcpu=750 -meabi -mhard-float"
 export NETSURF_BUILD_USER=quatric
 export NETSURF_BUILD_NAME=quatric
 export NETSURF_BUILD_ROOT=netsurf-wii
@@ -118,5 +131,10 @@ chmod 0644 "$PACKAGE_DIR/fonts/RodinNTLG-DB.otf" \
 	"$PACKAGE_DIR/fonts/RodinNTLG-B.otf"
 cp "$SCRIPT_DIR/fonts/BreeSerif-Regular.ttf" "$SCRIPT_DIR/fonts/BreeSerif-OFL.txt" \
 	"$PACKAGE_DIR/fonts/"
+
+# The Homebrew Channel zip (apps/netsurf/...): attach it to a release and
+# older copies can update themselves to it.
+rm -f "$SCRIPT_DIR/dist/netsurf-wii.zip"
+(cd "$SCRIPT_DIR/dist" && zip -qr netsurf-wii.zip apps)
 
 echo "Packaged Wii browser at $PACKAGE_DIR"

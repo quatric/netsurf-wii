@@ -188,7 +188,7 @@ S_FRONTEND := gui.c framebuffer.c schedule.c bitmap.c fetch.c	\
 	findfile.c corewindow.c local_history.c clipboard.c
 
 ifeq ($(NETSURF_WII),YES)
-  S_FRONTEND += wii_compat.c wii_loading.c
+  S_FRONTEND += wii_compat.c wii_loading.c wii_update.c
 endif
 
 # toolkit sources

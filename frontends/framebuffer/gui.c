@@ -37,6 +37,7 @@
 #include <wiisocket.h>
 #include "framebuffer/wii_compat.h"
 #include "framebuffer/wii_loading.h"
+#include "framebuffer/wii_update.h"
 #define WII_LOG(...) SYS_Report("NetSurf Wii: " __VA_ARGS__)
 
 /* #94aeff, behind the browser outside the TV-safe margin */
@@ -2451,6 +2452,9 @@ main(int argc, char** argv)
 		wii_loading_status(status, false);
 		/* long enough to read before the browser starts anyway */
 		sleep(3);
+	} else {
+		/* checks GitHub for a newer release while NetSurf starts */
+		wii_update_start(argc > 0 ? argv[0] : NULL);
 	}
 	WII_LOG("network startup complete (%d)\n", ret);
 #endif
@@ -2516,6 +2520,7 @@ main(int argc, char** argv)
 		die("unable to process command line.\n");
 
 #ifdef GEKKO
+	wii_update_prompt();
 	wii_loading_hold();
 #endif
 	nsfb = framebuffer_initialise(fename, fewidth, feheight, febpp);

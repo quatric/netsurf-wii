@@ -27,12 +27,13 @@ jobs:
         uses: actions/checkout@v6
         with:
           fetch-depth: 1
+          submodules: true
 
       - name: Install host build dependencies
         run: |
           apt-get update
           apt-get install -y --no-install-recommends \
-            bison flex fonts-dejavu-core gperf libpng-dev perl \
+            bison flex fonts-dejavu-core gperf libpng-dev perl zip \
             gcc libc6-dev liblzma-dev pkg-config curl ca-certificates
           rm -rf /var/lib/apt/lists/*
 
@@ -93,5 +94,6 @@ jobs:
           path: |
             netsurf-wii-ci.tar.gz
             netsurf-wii-ci.tar.gz.sha256
+            wii/dist/netsurf-wii.zip
           if-no-files-found: error
           retention-days: 14
